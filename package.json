@@ -1,0 +1,47 @@
+{
+  "dependencies": {
+    "@fastify/autoload": "^6.5.1",
+    "@fastify/cookie": "^11.1.5",
+    "@fastify/cors": "^11.4.1",
+    "@fastify/helmet": "^13.2.0",
+    "@fastify/rate-limit": "^11.2.2",
+    "@fingerprintjs/fingerprintjs-pro": "^3.12.16",
+    "@fingerprintjs/fingerprintjs-pro-server-api": "^6.13.1",
+    "@prisma/adapter-pg": "^7.10.1",
+    "@prisma/client": "^7.10.1",
+    "bullmq": "^6.7.2",
+    "dotenv": "^18.0.10",
+    "fastify": "^5.12.8",
+    "fastify-plugin": "^6.0.1",
+    "ioredis": "^6.0.0",
+    "jose": "^6.2.16",
+    "pino": "^10.4.0",
+    "zod": "^4.6.7"
+  },
+  "name": "shoptrail",
+  "version": "1.0.0",
+  "description": "ShopTrail backend",
+  "main": "dist/server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "FASTIFY_AUTOLOAD_TYPESCRIPT=1 tsx watch src/server.ts",
+    "build": "tsc && tsc-alias && npm run build:client",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "prisma:generate": "prisma generate",
+    "build:client": "node scripts/build-client.mjs",
+    "dev:client": "node scripts/build-client.mjs --watch"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "prisma": "^7.10.1",
+    "tsc-alias": "^1.9.10",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "esbuild": "^0.28.2"
+  }
+}

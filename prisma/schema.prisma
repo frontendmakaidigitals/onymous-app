@@ -1,0 +1,415 @@
+generator client {
+  provider      = "prisma-client"
+  output        = "../src/generated/prisma"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  schemas  = ["customers", "stores"]
+}
+
+model Customer {
+  id            String          @id
+  firstName     String?
+  lastName      String?
+  email         String?
+  totalSpent    Float           @default(0)
+  totalOrders   Int             @default(0)
+  taxExempt     Boolean         @default(false)
+  createdAt     DateTime        @default(now())
+  phone         String?         @unique
+  updatedAt     DateTime        @updatedAt
+  addresses     Address[]
+  TrustedDevice TrustedDevice[]
+
+  @@index([phone])
+  @@index([email])
+  @@schema("customers")
+}
+
+model Address {
+  id            Int       @id @default(autoincrement())
+  address1      String?
+  address2      String?
+  city          String?
+  provinceCode  String?
+  countryCode   String?
+  zip           String?
+  phone         String?
+  isDefault     Boolean   @default(false)
+  email         String?
+  createdAt     DateTime  @default(now())
+  customerPhone String?
+  name          String?
+  updatedAt     DateTime  @updatedAt
+  customer      Customer? @relation(fields: [customerPhone], references: [phone])
+
+  @@index([customerPhone])
+  @@index([isDefault])
+  @@schema("customers")
+}
+
+model Store {
+  id                   String                @id @default(cuid())
+  name                 String
+  currency             String
+  websiteUrl           String?
+  description          String?
+  language             String?
+  rtl                  Boolean               @default(false)
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  logo                 String?
+  primaryColor         String?
+  textColor            String?
+  addressPhone         String?
+  oauthInstalledAt     DateTime?
+  oauthToken           String?
+  shopifyClientId      String?
+  shopifyClientSecret  String?
+  shopDomain           String?               @unique
+  pixelId              String                @unique
+  email                String?
+  isActive             Boolean               @default(false)
+  subscriptionExempt   Boolean               @default(false)
+  cartRecoveryProvider String?
+  storeSecret          String?
+  addressCity          String?
+  addressLine1         String?
+  addressPostal        String?
+  addressState         String?
+  stripeCustomerId     String?               @unique
+  merchantSubscription MerchantSubscription?
+  Order                Order[]
+  pixelEvents          PixelEvent[]
+  users                users[]
+
+  @@schema("stores")
+}
+
+model PixelEvent {
+  id          String   @id @default(cuid())
+  storeId     String
+  pixelId     String
+  eventName   String
+  eventId     String
+  sessionId   String
+  visitorId   String
+  revenue     Decimal? @db.Decimal(10, 2)
+  currency    String?
+  country     String?
+  device      String?
+  landingUrl  String?
+  referrer    String?
+  utmSource   String?
+  utmMedium   String?
+  utmCampaign String?
+  url         String?
+  properties  Json?
+  createdAt   DateTime @default(now())
+  store       Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([pixelId, eventId, eventName])
+  @@index([storeId, eventName, createdAt])
+  @@index([storeId, sessionId])
+  @@index([storeId, visitorId])
+  @@index([storeId, country, createdAt])
+  @@index([storeId, device, createdAt])
+  @@index([storeId, utmSource, createdAt])
+  @@schema("stores")
+}
+
+model AbandonedCart {
+  id                  String    @id @default(cuid())
+  shop                String
+  phone               String
+  customerId          String?
+  cartToken           String?
+  currency            String
+  total               Float
+  items               Json
+  email               String?
+  name                String?
+  recoveryLink        String?
+  isPurchased         Boolean   @default(false)
+  purchasedAt         DateTime?
+  abandonedAttempts   Int       @default(0)
+  abandonedError      String?
+  abandonedSentAt     DateTime?
+  lastAbandonedSentAt DateTime?
+  recoveryClickedAt   DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  deliveredAt         DateTime?
+  deliveryFailedAt    DateTime?
+  readAt              DateTime?
+  fpVisitorId         String?
+  source              String    @default("cart")
+  deliveryError       String?
+  deliveryStatus      String?
+  lastActivityAt      DateTime  @default(now())
+  purchaseAttribution String?
+  purchaseOrderId     String?
+  purchaseCurrency    String?
+  purchaseGateway     String?
+  purchaseTotal       Float?
+
+  @@unique([shop, phone])
+  @@index([phone])
+  @@index([shop])
+  @@index([isPurchased, updatedAt])
+  @@index([shop, isPurchased, lastActivityAt])
+  @@index([shop, purchaseAttribution, purchasedAt])
+  @@schema("stores")
+}
+
+model security_events {
+  id        String   @id
+  userId    String
+  type      String
+  ipAddress String?
+  userAgent String?
+  metadata  Json?
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  users     users    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@schema("stores")
+}
+
+model sessions {
+  id         String    @id
+  userId     String
+  tokenHash  String?   @unique
+  ipAddress  String?
+  userAgent  String?
+  lastUsedAt DateTime  @default(now()) @db.Timestamptz(3)
+  expiresAt  DateTime  @db.Timestamptz(3)
+  revokedAt  DateTime? @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime  @db.Timestamptz(3)
+  users      users     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+  @@index([userId])
+  @@schema("stores")
+}
+
+model users {
+  id                    String            @id
+  email                 String?           @unique
+  phone                 String?           @unique
+  firstName             String?
+  lastName              String?
+  passwordHash          String?
+  passwordChangedAt     DateTime?         @db.Timestamptz(3)
+  pendingEmail          String?
+  pendingEmailTokenHash String?           @unique
+  pendingEmailExpiresAt DateTime?         @db.Timestamptz(3)
+  pendingPhone          String?
+  pendingPhoneOtpHash   String?
+  pendingPhoneExpiresAt DateTime?         @db.Timestamptz(3)
+  pendingPhoneAttempts  Int               @default(0)
+  emailVerifiedAt       DateTime?         @db.Timestamptz(3)
+  phoneVerifiedAt       DateTime?         @db.Timestamptz(3)
+  failedLoginAttempts   Int               @default(0)
+  lockedUntil           DateTime?         @db.Timestamptz(3)
+  twoFactorEnabled      Boolean           @default(false)
+  twoFactorSecret       String?
+  role                  UserRole          @default(ADMIN)
+  isActive              Boolean           @default(true)
+  lastLoginAt           DateTime?         @db.Timestamptz(3)
+  lastLoginIp           String?
+  deletedAt             DateTime?         @db.Timestamptz(3)
+  createdAt             DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime          @db.Timestamptz(3)
+  storeId               String?
+  security_events       security_events[]
+  sessions              sessions[]
+  Store                 Store?            @relation(fields: [storeId], references: [id])
+
+  @@index([deletedAt])
+  @@index([isActive])
+  @@schema("stores")
+}
+
+model Order {
+  id                      String   @id
+  storeId                 String
+  shop                    String
+  shopifyOrderId          String
+  shopifyOrderNumericId   String?
+  transactionId           String?
+  paymentMethod           String
+  items                   Json
+  shippingCost            Float
+  shippingHandle          String?
+  currency                String
+  discountCode            String?
+  customerName            String?
+  customerEmail           String?
+  customerPhone           String?
+  visitorId               String?
+  sessionId               String?
+  createdAt               DateTime @default(now())
+  conversionRateAtPayment Float?
+  paidCurrency            String?
+  totalUsd                Float?
+  usdConversionRate       Float?
+  codFee                  Float?
+  vatAmount               Float?
+  manualDiscountAmount    Float?
+  discountAmountDisplay   Float?
+  paidTotal               Float?
+  Store                   Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([shop])
+  @@index([shopifyOrderId])
+  @@index([storeId, sessionId])
+  @@index([storeId, visitorId])
+  @@schema("stores")
+}
+
+model MerchantSubscription {
+  id                      String    @id
+  storeId                 String    @unique
+  stripeCustomerId        String
+  stripeSubscriptionId    String    @unique
+  stripePriceId           String
+  plan                    String
+  status                  String
+  currentPeriodEnd        DateTime
+  cancelAtPeriodEnd       Boolean   @default(false)
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime
+  billingCycle            String    @default("monthly")
+  gmvCurrentPeriodEnd     DateTime?
+  gmvStatus               String?
+  stripeGmvSubscriptionId String?   @unique
+  Store                   Store     @relation(fields: [storeId], references: [id])
+
+  @@schema("stores")
+}
+
+model OtpEvent {
+  id        String    @id
+  phone     String
+  status    OtpStatus
+  reason    String?
+  createdAt DateTime  @default(now())
+
+  @@index([phone])
+  @@index([status, createdAt])
+  @@schema("stores")
+}
+
+model BitespeedIntegration {
+  id             String   @id
+  shop           String   @unique
+  apiKey         String?
+  apiKeyLast4    String?
+  enabled        Boolean  @default(true)
+  delayMinutes   Int      @default(30)
+  recoveryDomain String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime
+
+  @@schema("stores")
+}
+
+model TrustedDevice {
+  id          String    @id
+  customerId  String
+  cookieHash  String?   @unique
+  fpVisitorId String?
+  lastCountry String?
+  verifiedAt  DateTime
+  lastSeenAt  DateTime  @default(now())
+  revokedAt   DateTime?
+  Customer    Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@index([fpVisitorId])
+  @@schema("customers")
+}
+
+model ProductView {
+  id                  String    @id @default(cuid())
+  shop                String
+  phone               String
+  customerId          String
+  productId           String
+  variantId           String?
+  handle              String?
+  title               String
+  variantTitle        String?
+  price               Float?
+  currency            String?
+  image               String?
+  url                 String?
+  fpVisitorId         String?
+  viewCount           Int       @default(1)
+  firstViewedAt       DateTime  @default(now())
+  lastViewedAt        DateTime  @default(now())
+  abandonedAttempts   Int       @default(0)
+  abandonedError      String?
+  abandonedSentAt     DateTime?
+  deliveredAt         DateTime?
+  deliveryError       String?
+  deliveryFailedAt    DateTime?
+  deliveryStatus      String?
+  isPurchased         Boolean   @default(false)
+  lastAbandonedSentAt DateTime?
+  purchasedAt         DateTime?
+  readAt              DateTime?
+  recoveryClickedAt   DateTime?
+
+  @@unique([shop, phone, productId])
+  @@index([shop, lastViewedAt])
+  @@index([phone])
+  @@schema("stores")
+}
+
+model ZokoIntegration {
+  id                 String   @id
+  shop               String   @unique
+  enabled            Boolean  @default(true)
+  checkoutWebhookUrl String?
+  cartWebhookUrl     String?
+  browseWebhookUrl   String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime
+
+  @@schema("stores")
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+
+  @@schema("stores")
+}
+
+enum OtpStatus {
+  SENT
+  FAILED
+  VERIFIED
+
+  @@schema("stores")
+}
+
+// Owned by the dashboard (template choice + copy). Read-only here.
+// Table is created by the shared DB's migrations; never migrate from this repo.
+model ConsentPopupConfig {
+  id           String    @id @default(cuid())
+  storeId      String    @unique
+  templateKey  String
+  enabled      Boolean   @default(false)
+  content      Json?
+  primaryColor String?
+  publishedAt  DateTime?
+  updatedAt    DateTime  @updatedAt
+
+  @@schema("stores")
+}
