@@ -1,0 +1,186 @@
+name: Server Deployment
+
+on:
+  push:
+    branches:
+      - production
+      - staging
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: Production
+
+    steps:
+      - name: Onymous app
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v3
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Create .env file
+        run: |
+          {
+
+            echo "NEXT_PUBLIC_URL=${{ vars.NEXT_PUBLIC_URL }}"
+            echo "REDIS_PORT=${{ vars.REDIS_PORT }}"
+            echo "REDIS_HOST=${{ vars.REDIS_HOST }}"
+            echo "CHECKOUT_TOKEN_SECRET=${{ secrets.CHECKOUT_TOKEN_SECRET }}"
+            echo "DATABASE_URL=${{ vars.DATABASE_URL }}"
+            echo "REDIS_PASSWORD=${{ vars.REDIS_PASSWORD }}"
+            echo "ENCRYPTION_KEY=${{ secrets.ENCRYPTION_KEY }}"
+            
+     
+
+            echo "DASHBOARD_URL=${{ vars.DASHBOARD_URL }}"
+           
+            echo "MSG91_AUTH_KEY=${{ secrets.MSG91_AUTH_KEY }}"
+            echo "MSG91_WHATSAPP_NUMBER=${{ secrets.MSG91_WHATSAPP_NUMBER }}"
+            echo "MSG91_WHATSAPP_NAMESPACE=${{ secrets.MSG91_WHATSAPP_NAMESPACE }}"
+            echo "STRIPE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY }}"
+
+            echo "FP_SECRET_API_KEY=${{secrets.FP_SECRET_API_KEY}}"
+            
+            echo "RECONCILE_ALERT_WEBHOOK=${{secrets.RECONCILE_ALERT_WEBHOOK}}"
+            echo "RECONCILE_SKIP_TEST_KEYS=${{secrets.RECONCILE_SKIP_TEST_KEYS}}"
+           
+            
+            echo "SHOPIFY_STOREFRONT_TOKEN=${{ secrets.SHOPIFY_STOREFRONT_TOKEN }}"
+
+          } > .env
+          cp .env .env.production
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Clear Next.js cache
+        run: rm -rf .next
+
+      - name: Build
+        run: npm run build
+
+      - name: Package Prisma into Standalone
+        run: |
+          mkdir -p .next/standalone/node_modules
+
+          # Copy prisma engines
+          cp -R node_modules/.prisma .next/standalone/node_modules/
+          cp -R node_modules/@prisma .next/standalone/node_modules/
+
+          # Copy prisma schema/migrations directory (the key fix from the reference)
+          cp -R prisma .next/standalone/prisma
+
+          echo "Prisma packaged successfully"
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          python3 -c "
+          import os
+          key = os.environ['SSH_KEY']
+          with open(os.path.expanduser('~/.ssh/id_ed25519'), 'w') as f:
+              f.write(key + '\n')
+          "
+          chmod 600 ~/.ssh/id_ed25519
+          echo "StrictHostKeyChecking no" >> ~/.ssh/config
+        env:
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+
+      - name: Create tarball
+        run: |
+          tar --exclude='./node_modules' \
+            --exclude='.git' \
+            --exclude='.next/cache' \
+            --exclude='.next/trace' \
+            --exclude='uploads' \
+            -czf deploy.tar.gz . || [ $? -eq 1 ]
+
+      - name: Copy tarball to server
+        run: |
+          scp -i ~/.ssh/id_ed25519 -P 22 \
+            -o StrictHostKeyChecking=no -o ConnectTimeout=60 -o ServerAliveInterval=15 -o ServerAliveCountMax=10 \
+            deploy.tar.gz ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ vars.APP_PATH }}/deploy.tar.gz
+
+      - name: Extract on server
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -p 22 -o StrictHostKeyChecking=no \
+          ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
+            cd ${{ vars.APP_PATH }}
+            tar -xzf deploy.tar.gz
+            rm deploy.tar.gz
+          EOF
+
+      - name: Install & Restart on server
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -p 22 -o StrictHostKeyChecking=no \
+          ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
+            cd ${{ vars.APP_PATH }}
+
+            npm ci --omit=dev --ignore-scripts
+            npx prisma db pull
+            npx prisma generate
+            cp -R node_modules/.prisma .next/standalone/node_modules/
+            cp -R node_modules/@prisma .next/standalone/node_modules/
+
+            rm -rf .next/standalone/.next/static
+            cp -r .next/static .next/standalone/.next/
+            mkdir -p .next/standalone/public
+            cp -r public/. .next/standalone/public/
+            cp .env .next/standalone/.env
+
+            node -e "
+            const fs = require('fs');
+            const vars = {};
+            if (fs.existsSync('.env')) {
+              fs.readFileSync('.env', 'utf8').split('\n').forEach(line => {
+                const idx = line.indexOf('=');
+                if (idx > 0) {
+                  const key = line.slice(0, idx).trim();
+                  const val = line.slice(idx + 1).trim();
+                  if (key) vars[key] = val;
+                }
+              });
+            }
+            const config = \`module.exports = {
+              apps: [{
+                name: 'checkout',
+                script: 'server.js',
+                cwd: process.cwd() + '/.next/standalone',
+                env: \${JSON.stringify({NODE_ENV: 'production', PORT: 3000, ...vars}, null, 2)},
+              }],
+            };\`;
+            fs.writeFileSync('ecosystem.config.js', config);
+            console.log('ecosystem.config.js written with', Object.keys(vars).length, 'vars');
+            "
+
+            /usr/local/bin/pm2 restart ecosystem.config.js --update-env || \
+            /usr/local/bin/pm2 start ecosystem.config.js
+            /usr/local/bin/pm2 save
+          EOF
+
+      - name: Health check
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -p 22 -o StrictHostKeyChecking=no \
+          ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
+            set -e
+            sleep 5
+
+            if ! /usr/local/bin/pm2 describe checkout | grep -q "status.*online"; then
+              echo "PM2 process 'checkout' is not online"
+              /usr/local/bin/pm2 logs checkout --lines 50 --nostream
+              exit 1
+            fi
+
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000)
+            if [ "$STATUS" -ge 500 ] || [ "$STATUS" -eq 000 ]; then
+              echo "Health check failed, HTTP status: $STATUS"
+              /usr/local/bin/pm2 logs checkout --lines 50 --nostream
+              exit 1
+            fi
+
+            echo "App is up, HTTP status: $STATUS"
+          EOF
