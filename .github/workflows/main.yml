@@ -26,31 +26,22 @@ jobs:
         run: |
           {
 
-            echo "NEXT_PUBLIC_URL=${{ vars.NEXT_PUBLIC_URL }}"
+            
             echo "REDIS_PORT=${{ vars.REDIS_PORT }}"
-            echo "REDIS_HOST=${{ vars.REDIS_HOST }}"
-            echo "CHECKOUT_TOKEN_SECRET=${{ secrets.CHECKOUT_TOKEN_SECRET }}"
-            echo "DATABASE_URL=${{ vars.DATABASE_URL }}"
-            echo "REDIS_PASSWORD=${{ vars.REDIS_PASSWORD }}"
+            echo "REDIS_HOST=${{ secrets.REDIS_HOST }}"
             echo "ENCRYPTION_KEY=${{ secrets.ENCRYPTION_KEY }}"
+            echo "DATABASE_URL=${{ secrets.DATABASE_URL }}"
+            echo "REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}"
             
      
 
-            echo "DASHBOARD_URL=${{ vars.DASHBOARD_URL }}"
+            echo "DASHBOARD_ORIGINS=${{ vars.DASHBOARD_ORIGINS }}"
            
             echo "MSG91_AUTH_KEY=${{ secrets.MSG91_AUTH_KEY }}"
             echo "MSG91_WHATSAPP_NUMBER=${{ secrets.MSG91_WHATSAPP_NUMBER }}"
             echo "MSG91_WHATSAPP_NAMESPACE=${{ secrets.MSG91_WHATSAPP_NAMESPACE }}"
-            echo "STRIPE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY }}"
-
             echo "FP_SECRET_API_KEY=${{secrets.FP_SECRET_API_KEY}}"
             
-            echo "RECONCILE_ALERT_WEBHOOK=${{secrets.RECONCILE_ALERT_WEBHOOK}}"
-            echo "RECONCILE_SKIP_TEST_KEYS=${{secrets.RECONCILE_SKIP_TEST_KEYS}}"
-           
-            
-            echo "SHOPIFY_STOREFRONT_TOKEN=${{ secrets.SHOPIFY_STOREFRONT_TOKEN }}"
-
           } > .env
           cp .env .env.production
 
@@ -147,10 +138,10 @@ jobs:
             }
             const config = \`module.exports = {
               apps: [{
-                name: 'checkout',
+                name: 'onymous-app',
                 script: 'server.js',
                 cwd: process.cwd() + '/.next/standalone',
-                env: \${JSON.stringify({NODE_ENV: 'production', PORT: 3000, ...vars}, null, 2)},
+                env: \${JSON.stringify({NODE_ENV: 'production', PORT: ${{secrets.APP_PORT}}, ...vars}, null, 2)},
               }],
             };\`;
             fs.writeFileSync('ecosystem.config.js', config);
@@ -169,16 +160,16 @@ jobs:
             set -e
             sleep 5
 
-            if ! /usr/local/bin/pm2 describe checkout | grep -q "status.*online"; then
-              echo "PM2 process 'checkout' is not online"
-              /usr/local/bin/pm2 logs checkout --lines 50 --nostream
+            if ! /usr/local/bin/pm2 describe onymous-app | grep -q "status.*online"; then
+              echo "PM2 process 'onymous-app' is not online"
+              /usr/local/bin/pm2 logs onymous-app --lines 50 --nostream
               exit 1
             fi
 
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000)
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:${{secrets.APP_PORT}})
             if [ "$STATUS" -ge 500 ] || [ "$STATUS" -eq 000 ]; then
               echo "Health check failed, HTTP status: $STATUS"
-              /usr/local/bin/pm2 logs checkout --lines 50 --nostream
+              /usr/local/bin/pm2 logs onymous-app --lines 50 --nostream
               exit 1
             fi
 
