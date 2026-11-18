@@ -384,6 +384,19 @@ model ZokoIntegration {
   @@schema("stores")
 }
 
+model ConsentPopupConfig {
+  id           String    @id @default(cuid())
+  storeId      String    @unique
+  templateKey  String
+  enabled      Boolean   @default(false)
+  content      Json?
+  primaryColor String?
+  publishedAt  DateTime?
+  updatedAt    DateTime  @updatedAt
+
+  @@schema("stores")
+}
+
 enum UserRole {
   OWNER
   ADMIN
@@ -395,21 +408,6 @@ enum OtpStatus {
   SENT
   FAILED
   VERIFIED
-
-  @@schema("stores")
-}
-
-// Owned by the dashboard (template choice + copy). Read-only here.
-// Table is created by the shared DB's migrations; never migrate from this repo.
-model ConsentPopupConfig {
-  id           String    @id @default(cuid())
-  storeId      String    @unique
-  templateKey  String
-  enabled      Boolean   @default(false)
-  content      Json?
-  primaryColor String?
-  publishedAt  DateTime?
-  updatedAt    DateTime  @updatedAt
 
   @@schema("stores")
 }
