@@ -1,0 +1,461 @@
+<template id="gc-header-btn-template">
+  <button type="button" class="gc-header-btn" data-gc-header-btn aria-label="Login">
+    <svg
+      class="gc-badge"
+      xmlns="http://www.w3.org/2000/svg"
+      width="1em"
+      height="1em"
+      viewBox="0 0 24 24"
+      fill="#fea200"
+      stroke="#ffffff"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <title>bolt-rounded</title>
+      <path d="M9 15H5.9q-.6 0-.888-.537t.063-1.038l7.475-10.75q.25-.35.65-.487t.825.012t.625.525t.15.8L14 10h3.875q.65 0 .913.575t-.163 1.075L10.4 21.5q-.275.325-.675.425t-.775-.075t-.587-.537t-.163-.788z"/>
+    </svg>
+
+    <svg class="gc-user" width="100%" height="100%" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M20 21C20 19.6044 20 18.9067 19.8278 18.3389C19.44 17.0605 18.4395 16.06 17.1611 15.6722C16.5933 15.5 15.8956 15.5 14.5 15.5H9.5C8.10444 15.5 7.40665 15.5 6.83886 15.6722C5.56045 16.06 4.56004 17.0605 4.17224 18.3389C4 18.9067 4 19.6044 4 21M16.5 7.5C16.5 9.98528 14.4853 12 12 12C9.51472 12 7.5 9.98528 7.5 7.5C7.5 5.01472 9.51472 3 12 3C14.4853 3 16.5 5.01472 16.5 7.5Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </button>
+</template>
+
+<style>
+      /* Login popup: one transparent iframe. onymous-app draws the active template
+         (backdrop, card, corner card or bottom bar) and tells us how big to make it. */
+      #__gc-panel-frame {
+        display: none;
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        border: 0;
+        background: transparent;
+        color-scheme: normal;
+        z-index: 2147483647;
+        visibility: hidden;
+      }
+      #__gc-panel-frame.open { display: block; }
+      #__gc-panel-frame.ready { visibility: visible; }
+      .gc-header-btn {
+        position: relative;
+        display: flex !important;
+        justify-content: center;
+        align-items: center;
+        width: 44px;
+        height: 44px;
+        margin: 0 !important;
+        padding: 0;
+        border: 0;
+        background: none;
+        line-height: 0;
+        cursor: pointer;
+        z-index: 2;
+      }
+
+      .gc-user {
+        position: static;
+        display: block;
+        width: 20px;
+        height: 20px;
+      }
+
+
+      /* badge: small, sits above the person's head, shifted right */
+     .gc-badge {
+        position: absolute;
+        top: 50%;
+        right: -2px;
+        transform: translateY(-50%) translateX(-50%);
+        width: 20px;
+        height: 20px;
+        z-index: 1;
+    }
+      html[data-gc-auth="in"] .gc-header-btn { display: none !important; }
+      html:not([data-gc-auth="in"]) #header-group shopify-account,
+      html:not([data-gc-auth="in"]) #header-group a[href*="/account"],
+      html:not([data-gc-auth="in"]) #header-group a[href*="customer_authentication"],
+      html:not([data-gc-auth="in"]) #header-group a[href*="/login"] {
+        display: none !important;
+      }
+</style>
+
+{%- if template.name == 'product' and product -%}
+  {%- assign gc_v = product.selected_or_first_available_variant -%}
+  {%- capture gc_img -%}{%- if product.featured_image -%}https:{{ product.featured_image | image_url: width: 600 }}{%- endif -%}{%- endcapture -%}
+  <script type="application/json" id="gc-pdp-data">
+    {
+      "id": {{ product.id | json }},
+      "handle": {{ product.handle | json }},
+      "title": {{ product.title | json }},
+      "variantId": {{ gc_v.id | json }},
+      "variantTitle": {{ gc_v.title | json }},
+      "price": {{ gc_v.price | json }},
+      "currency": {{ cart.currency.iso_code | json }},
+      "image": {{ gc_img | json }},
+      "variants": {{ product.variants | map: 'id' | json }},
+      "variantPrices": {{ product.variants | map: 'price' | json }},
+      "variantTitles": {{ product.variants | map: 'title' | json }}
+    }
+  </script>
+{%- endif -%}
+
+<script>
+      (function () {
+        if (window.__gcHeaderBtnLoaded) return;
+        window.__gcHeaderBtnLoaded = true;
+
+        var CHECKOUT_URL = "https://relaxation-considerable-mines-abstracts.trycloudflare.com";
+        var PAGE_PATH = '/login';
+        var CART_SYNC_URL = CHECKOUT_URL + '/api/storefront/cart';
+        var PDP_VIEW_URL = CHECKOUT_URL + '/api/storefront/product-view';
+        var PDP_DEDUPE_MS = 30 * 60 * 1000; // one view per product per 30 min per tab session
+        var SHOP_DOMAIN = {{ shop.permanent_domain | json }};
+        var SEARCH_SELECTOR = '#header-group button[on\\:click*="search-modal"]';
+        var ACCOUNT_SELECTOR = '#header-group shopify-account, #header-group a[href*="/account"], #header-group a[href*="customer_authentication"], #header-group a[href*="/login"]';
+        var AUTH_KEY = 'gc_auth';
+        var TOKEN_KEY = 'gc_cart_token';
+        var HASH_KEY = 'gc_cart_hash';
+        var AUTH_TTL = 55 * 60 * 1000;
+
+        var authResolved = false;          // true once we know the login state
+        var AUTO_KEY = 'gc_login_prompted';
+        var AUTO_DELAY = 10000;             // ms after page load before auto-opening login
+
+        /* ---------------- recovery link (GulfPass-only stores) ----------------
+           Links are always https://store/?gc_recover=<id>. When the GulfCart checkout
+           snippet is installed it handles them (overlay or native). Without it, this
+           redirects to Shopify native checkout prefilled; the recover call records the
+           click, and the permalink tags the order with attributes[gc_recover]. */
+
+        function handleRecoveryLink() {
+          var id = null;
+          try { id = new URLSearchParams(location.search).get('gc_recover'); } catch (err) {}
+          if (!id || window.__gcCheckoutLoaded) return;
+
+          fetch(CHECKOUT_URL + '/api/cart/recover?token=' + encodeURIComponent(id), {
+            headers: { 'ngrok-skip-browser-warning': '1' }
+          })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (d) {
+              if (d && d.permalinkPath) {
+                location.replace(d.permalinkPath);
+                return;
+              }
+              // Expired / purchased / unavailable: just drop the param and stay on the store
+              try {
+                var u = new URL(location.href);
+                u.searchParams.delete('gc_recover');
+                history.replaceState({}, '', u.toString());
+              } catch (err) {}
+            })
+            .catch(function () {});
+        }
+
+        // Wait for the rest of the page's scripts so the checkout snippet can claim it first
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', handleRecoveryLink);
+        } else {
+          setTimeout(handleRecoveryLink, 0);
+        }
+
+        /* ---------------- auth state ---------------- */
+
+        function isAuthed() {
+          try { return Number(localStorage.getItem(AUTH_KEY) || 0) > Date.now(); } catch (err) { return false; }
+        }
+        function getToken() {
+          if (!isAuthed()) return null;
+          try { return localStorage.getItem(TOKEN_KEY); } catch (err) { return null; }
+        }
+        function setAuth(v, token) {
+          try {
+            if (v && token) {
+              localStorage.setItem(AUTH_KEY, String(Date.now() + AUTH_TTL));
+              localStorage.setItem(TOKEN_KEY, token);
+            } else if (v) {
+              localStorage.setItem(AUTH_KEY, String(Date.now() + AUTH_TTL));
+            } else {
+              localStorage.removeItem(AUTH_KEY);
+              localStorage.removeItem(TOKEN_KEY);
+              localStorage.removeItem(HASH_KEY);
+            }
+          } catch (err) {}
+          document.documentElement.setAttribute('data-gc-auth', v ? 'in' : 'out');
+        }
+        document.documentElement.setAttribute('data-gc-auth', isAuthed() ? 'in' : 'out');
+
+        /* ---------------- header button ---------------- */
+
+       function mount() {
+    var tpl = document.getElementById('gc-header-btn-template');
+    var els = document.querySelectorAll(ACCOUNT_SELECTOR);
+    if (!tpl || !els.length) return;
+    els.forEach(function (el) {
+      if (el.closest('[data-gc-wrap]') || el.querySelector('[data-gc-header-btn]')) return;
+      var btn = tpl.content.firstElementChild.cloneNode(true);
+
+      // Wrap the icon so the bolt can sit over it, whatever element the theme uses
+      var wrap = document.createElement('span');
+      wrap.setAttribute('data-gc-wrap', '');
+      wrap.style.cssText = 'position:relative;display:inline-flex;align-items:center;overflow:visible;';
+      el.parentNode.insertBefore(wrap, el);
+      wrap.appendChild(el);
+      wrap.appendChild(btn);
+    });
+  }
+        mount();
+        new MutationObserver(mount).observe(
+          document.getElementById('header-group') || document.body,
+          { childList: true, subtree: true }
+        );
+
+        /* ---------------- login panel ---------------- */
+
+        // The template (and its shape) is whatever is active in the Onymous dashboard.
+        // layout=auto: onymous-app places it like the dashboard preview and reports its size.
+        var frame = document.createElement('iframe');
+        frame.id = '__gc-panel-frame';
+        frame.title = 'Sign in';
+        frame.src = 'about:blank';
+        frame.setAttribute('allowtransparency', 'true');
+        frame.setAttribute('allow', 'clipboard-write'); // coupon "copy code"
+        document.body.appendChild(frame);
+        var panelOpen = false;
+
+        function openPanel() {
+          if (panelOpen) return;
+          panelOpen = true;
+          frame.removeAttribute('style');
+          frame.className = 'open'; // hidden until onymous:ready (never shown if already recognised)
+          frame.src = CHECKOUT_URL + PAGE_PATH + '?layout=auto&shop=' + encodeURIComponent(SHOP_DOMAIN);
+        }
+        function closePanel() {
+          panelOpen = false;
+          frame.className = '';
+          frame.removeAttribute('style');
+          document.body.style.overflow = '';
+          frame.src = 'about:blank';
+        }
+        // Size the iframe for the template: docked ones leave the rest of the page clickable
+        function placePanel(template) {
+          if (template === 'compact') {
+            frame.style.cssText = 'inset:auto 0 0 auto;width:min(420px,100vw);height:520px';
+          } else if (template === 'banner') {
+            frame.style.cssText = 'inset:auto 0 0 0;height:220px';
+          } else {
+            document.body.style.overflow = 'hidden'; // full-screen templates bring their own backdrop
+          }
+          frame.classList.add('ready');
+        }
+
+        document.addEventListener('keydown', function (e) {
+          if (e.key === 'Escape' && panelOpen) closePanel();
+        });
+        document.addEventListener('click', function (e) {
+          var btn = e.target.closest && e.target.closest('[data-gc-header-btn]');
+          if (!btn) return;
+          e.preventDefault();
+          openPanel();
+        });
+
+        /* ---------------- auto-open login popup ---------------- */
+
+       function autoPrompt() {
+        if (isAuthed() || panelOpen) return;
+        try {
+          if (sessionStorage.getItem(AUTO_KEY)) return; // already shown this session
+          sessionStorage.setItem(AUTO_KEY, '1');
+        } catch (err) {}
+        openPanel();
+      }
+      setTimeout(autoPrompt, AUTO_DELAY);
+
+        window.addEventListener('message', function (e) {
+          if (e.origin !== CHECKOUT_URL) return;
+          var d = e.data || {};
+          if (e.source === frame.contentWindow) {
+            if (d.type === 'onymous:ready') placePanel(d.template);
+            if (d.type === 'onymous:resize' && typeof d.height === 'number') {
+              frame.style.height = Math.min(Math.max(d.height, 80), window.innerHeight) + 'px';
+            }
+          }
+          if (d.type === 'GC_PANEL_CLOSE') closePanel();
+          if (d.type === 'GC_AUTH_STATE') {
+            authResolved = true;
+            try { sessionStorage.setItem('gc_probe', String(Date.now())); } catch (err) {}
+            var loggedIn = !!d.loggedIn;
+            setAuth(loggedIn, typeof d.cartToken === 'string' ? d.cartToken : null);
+            window.dispatchEvent(new CustomEvent('gc:auth', { detail: { loggedIn: loggedIn } }));
+            if (loggedIn && panelOpen) closePanel();
+            if (loggedIn) { scheduleSync(0, true); trackProductView(); }
+          }
+          // Order placed: forget the last synced cart so the next cart starts a fresh cycle
+          if (d.type === 'CHECKOUT_SUCCESS') {
+            try { localStorage.removeItem(HASH_KEY); } catch (err) {}
+          }
+        });
+
+        /* ---------------- silent fingerprint probe ---------------- */
+
+        function probe(force) {
+          if (!force) {
+            try {
+              var last = Number(sessionStorage.getItem('gc_probe') || 0);
+              if (Date.now() - last < 5 * 60 * 1000) { authResolved = true; return; }
+            } catch (err) {}
+          }
+          var p = document.createElement('iframe');
+          p.style.cssText = 'display:none;width:0;height:0;border:0';
+          p.setAttribute('aria-hidden', 'true');
+          p.src = CHECKOUT_URL + PAGE_PATH + '?silent=1&shop=' + encodeURIComponent(SHOP_DOMAIN);
+          document.body.appendChild(p);
+          setTimeout(function () { p.remove(); }, 15000);
+        }
+        // Re-probe if marked authed but token missing/expired
+        probe(isAuthed() && !getToken());
+
+        /* ---------------- abandoned-cart sync ----------------
+           The only storefront cart sync. Recognised visitors (OTP login or the silent
+           fingerprint probe above) get a cart token; their cart is written to the same
+           AbandonedCart row as an abandoned checkout and recovered the same way.
+           Replaces the old gulfcart-cart-track snippet — remove its render tag. */
+
+        var syncTimer = null;
+
+        function hashCart(cart) {
+          var s = (cart.items || []).map(function (i) {
+            return i.variant_id + 'x' + i.quantity;
+          }).join('|') + '#' + cart.total_price + cart.currency;
+          var h = 0;
+          for (var i = 0; i < s.length; i++) { h = ((h << 5) - h + s.charCodeAt(i)) | 0; }
+          return String(h);
+        }
+
+        function syncCart(force) {
+          var token = getToken();
+          if (!token) return;
+          fetch('/cart.js', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (cart) {
+              if (!cart) return;
+              var h = hashCart(cart);
+              var prev = null;
+              try { prev = localStorage.getItem(HASH_KEY); } catch (err) {}
+              if (!force && prev === h) return;
+              return fetch(CART_SYNC_URL, {
+                method: 'POST',
+                mode: 'cors',
+                keepalive: true,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: token, cart: cart })
+              }).then(function (r) {
+                if (r.status === 401) { setAuth(false); probe(true); return; }
+                if (r.ok) { try { localStorage.setItem(HASH_KEY, h); } catch (err) {} }
+              });
+            })
+            .catch(function () {});
+        }
+
+        function scheduleSync(delay, force) {
+          clearTimeout(syncTimer);
+          syncTimer = setTimeout(function () { syncCart(force); }, delay == null ? 1500 : delay);
+        }
+
+        var CART_RE = /\/cart\/(add|change|update|clear)(\.js)?(\?|$)/;
+
+        // fetch-based themes (Horizon, Dawn)
+        var _fetch = window.fetch;
+        window.fetch = function (input, init) {
+          var url = typeof input === 'string' ? input : (input && input.url) || '';
+          var res = _fetch.apply(this, arguments);
+          if (CART_RE.test(url)) {
+            res.then(function (r) { if (r && r.ok) scheduleSync(); }).catch(function () {});
+          }
+          return res;
+        };
+
+        // XHR-based themes / apps
+        var _open = XMLHttpRequest.prototype.open;
+        XMLHttpRequest.prototype.open = function (method, url) {
+          if (CART_RE.test(String(url))) {
+            this.addEventListener('load', function () {
+              if (this.status >= 200 && this.status < 300) scheduleSync();
+            });
+          }
+          return _open.apply(this, arguments);
+        };
+
+        // Theme cart events (themes/apps that mutate the cart without a matching fetch/XHR URL)
+        ['cart:update', 'cart:updated', 'cart:change'].forEach(function (name) {
+          document.addEventListener(name, function () { scheduleSync(); });
+        });
+
+        // Classic form posts reload the page, so sync once on every load
+        scheduleSync(2500);
+
+        /* ---------------- PDP view tracking ---------------- */
+
+        function readPdp() {
+          var el = document.getElementById('gc-pdp-data');
+          if (!el) return null;
+          try { return JSON.parse(el.textContent); } catch (err) { return null; }
+        }
+
+        function currentVariant(pdp) {
+          var id = null;
+          try { id = Number(new URL(location.href).searchParams.get('variant')) || null; } catch (err) {}
+          var i = id ? pdp.variants.indexOf(id) : -1;
+          if (i === -1) return { id: pdp.variantId, title: pdp.variantTitle, price: pdp.price };
+          return { id: id, title: pdp.variantTitles[i], price: pdp.variantPrices[i] };
+        }
+
+        function trackProductView() {
+          var token = getToken();
+          var pdp = readPdp();
+          if (!token || !pdp) return;
+
+          var key = 'gc_pv_' + pdp.id;
+          try {
+            var last = Number(sessionStorage.getItem(key) || 0);
+            if (Date.now() - last < PDP_DEDUPE_MS) return;
+          } catch (err) {}
+
+          // Claim the slot before sending so the 3s timer and the auth message can't double-count
+          try { sessionStorage.setItem(key, String(Date.now())); } catch (err) {}
+
+          var v = currentVariant(pdp);
+          fetch(PDP_VIEW_URL, {
+            method: 'POST',
+            mode: 'cors',
+            keepalive: true,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              token: token,
+              product: {
+                id: pdp.id,
+                handle: pdp.handle,
+                title: pdp.title,
+                variantId: v.id,
+                variantTitle: v.title === 'Default Title' ? null : v.title,
+                price: v.price,
+                currency: pdp.currency,
+                image: pdp.image,
+                url: location.origin + location.pathname
+              }
+            })
+          }).then(function (r) {
+            if (r.ok) return;
+            try { sessionStorage.removeItem(key); } catch (err) {}
+            if (r.status === 401) { setAuth(false); probe(true); }
+          }).catch(function () {
+            try { sessionStorage.removeItem(key); } catch (err) {}
+          });
+        }
+
+        // Wait a moment so quick bounces don't count as views
+        setTimeout(trackProductView, 3000);
+      })();
+</script>

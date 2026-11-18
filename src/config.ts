@@ -8,7 +8,7 @@ const schema = z.object({
   LOG_LEVEL: z.string().default("info"),
   CORS_ORIGINS: z.string().default(""),
   // Dashboard origin(s) allowed to frame /embed/consent/preview, comma-separated
-  DASHBOARD_ORIGINS: z.string().default("http://localhost:3000"),
+  DASHBOARD_ORIGINS: z.string().default("http://localhost:4100"),
 });
 
 export const config = schema.parse(process.env);
