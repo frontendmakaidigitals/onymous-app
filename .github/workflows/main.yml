@@ -38,6 +38,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Build
+        run: |
+          npm run build
+          ls dist/server.js
+
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
@@ -50,9 +58,10 @@ jobs:
       - name: Create tarball
         run: |
           tar --exclude='./node_modules' \
-            --exclude='.git' \
-            --exclude='uploads' \
+            --exclude='./.git' \
+            --exclude='./uploads' \
             -czf deploy.tar.gz . || [ $? -eq 1 ]
+          tar -tzf deploy.tar.gz | grep -m1 'dist/server.js'
 
       - name: Copy tarball to server
         run: |
@@ -65,8 +74,10 @@ jobs:
           ssh -i ~/.ssh/id_ed25519 -p 22 ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
             set -e
             cd ${{ secrets.APP_PATH }}
+            rm -rf dist
             tar -xzf deploy.tar.gz
             rm deploy.tar.gz
+            ls dist/server.js
 
             npm ci --omit=dev --ignore-scripts
 
