@@ -12,7 +12,7 @@ import { readFile } from "fs/promises";
 import path from "path";
 import type { FastifyPluginAsync, FastifyReply } from "fastify";
 import { config } from "@/config";
-import { getPublicPopupConfig } from "@/lib/consent/public-config";
+import { fallbackContent, getPublicPopupConfig } from "@/lib/consent/public-config";
 import {
   DEFAULT_PRIMARY,
   DEFAULT_TEMPLATE,
@@ -134,7 +134,7 @@ const embedRoutes: FastifyPluginAsync = async (app) => {
       // Nothing to show (or not this shop's storefront): render an empty, un-frameable page
       return sendPage(reply, null, []);
     }
-    const { config: cfg, store } = found;
+    const { config: cfg, store, brand } = found;
     return sendPage(
       reply,
       {
@@ -145,6 +145,7 @@ const embedRoutes: FastifyPluginAsync = async (app) => {
         templateKey: cfg.templateKey,
         content: cfg.content,
         primaryColor: cfg.primaryColor,
+        textColor: brand.textColor,
       },
       storeOrigins(store),
     );
@@ -160,9 +161,8 @@ const embedRoutes: FastifyPluginAsync = async (app) => {
   app.get<{ Querystring: { shop?: string; silent?: string; layout?: string } }>("/login", async (req, reply) => {
     const found = await getPublicPopupConfig(req.query.shop);
     if (!found) return sendPage(reply, null, []);
-    const { store, config: cfg } = found;
+    const { store, brand, config: cfg } = found;
     const origins = storeOrigins(store);
-    const fallback = resolveContent(null, store.name);
     const auto = req.query.layout === "auto";
 
     // Legacy sheet: a page-docked banner can't fill a fixed sheet, so show split there
@@ -178,15 +178,16 @@ const embedRoutes: FastifyPluginAsync = async (app) => {
         parentOrigin: null, // resolved in the browser and checked against allowedParents
         previewOrigin: null,
         templateKey: key,
-        content: cfg?.content ?? fallback,
-        primaryColor: cfg?.primaryColor ?? DEFAULT_PRIMARY,
+        content: cfg?.content ?? fallbackContent(store, brand, key),
+        primaryColor: cfg?.primaryColor ?? brand.primaryColor,
+        textColor: brand.textColor,
       },
       origins,
     );
   });
 
   // Preview for the dashboard gallery / Customize panel
-  app.get<{ Querystring: { template?: string; c?: string; color?: string; parent?: string } }>(
+  app.get<{ Querystring: { template?: string; c?: string; color?: string; text?: string; parent?: string } }>(
     "/embed/consent/preview",
     async (req, reply) => {
       const allowed = dashboardOrigins();
@@ -207,6 +208,7 @@ const embedRoutes: FastifyPluginAsync = async (app) => {
           templateKey: isTemplateKey(req.query.template) ? req.query.template : DEFAULT_TEMPLATE,
           content: resolveContent(content, brand),
           primaryColor: color,
+          textColor: req.query.text && HEX_RE.test(req.query.text) ? req.query.text : null,
         },
         allowed,
       );

@@ -2,7 +2,7 @@
 // with the store's own content in place of the hard-coded Teeser copy.
 // Uses the same pieces: react-international-phone, input-otp, embla carousel,
 // the shadcn checkbox look and the 12-bar spinner.
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import useEmblaCarousel from "embla-carousel-react";
 import Autoplay from "embla-carousel-autoplay";
 import { OTPInput, REGEXP_ONLY_DIGITS, type SlotProps } from "input-otp";
@@ -539,6 +539,27 @@ function examplePlaceholder(country: ParsedCountry) {
   return mask.replace(/\./g, () => "1234567890"[n++ % 10]!);
 }
 
+
+/** Country list height limits (px) and gap to the field / card edge. */
+const LIST_MAX = 200;
+const MIN_LIST = 140;
+const GAP = 6;
+
+/** Visible area for an element: its nearest clipping ancestor, within the viewport. */
+function clipBox(el: HTMLElement) {
+  let top = 0;
+  let bottom = window.innerHeight;
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    const o = getComputedStyle(p);
+    if (/(hidden|auto|scroll|clip)/.test(o.overflowY + o.overflow)) {
+      const r = p.getBoundingClientRect();
+      top = Math.max(top, r.top);
+      bottom = Math.min(bottom, r.bottom);
+    }
+  }
+  return { top, bottom };
+}
+
 function SearchablePhoneInput({
   value,
   onChange,
@@ -563,6 +584,19 @@ function SearchablePhoneInput({
     disableDialCodeAndPrefix: true,
     onChange: (data) => onChange(data.phone, data.country.dialCode),
   });
+
+  // The popup card clips its content (and the iframe ends at the card), so fit the list into
+  // whatever room the card has: below the field if it fits, otherwise above, capped to the space.
+  const [drop, setDrop] = useState<{ up: boolean; max: number }>({ up: false, max: LIST_MAX });
+  useLayoutEffect(() => {
+    if (!open || !containerRef.current) return;
+    const field = containerRef.current.getBoundingClientRect();
+    const box = clipBox(containerRef.current);
+    const below = box.bottom - field.bottom - GAP;
+    const above = field.top - box.top - GAP;
+    const up = below < Math.min(LIST_MAX, MIN_LIST) && above > below;
+    setDrop({ up, max: Math.max(MIN_LIST / 2, Math.min(LIST_MAX, up ? above : below)) });
+  }, [open]);
 
   // close dropdown on outside click
   useEffect(() => {
@@ -636,8 +670,14 @@ function SearchablePhoneInput({
       </div>
 
       {open && (
-        <div className="absolute z-50 mt-1 flex max-h-60 w-full flex-col round border bg-white shadow-2xl">
-          <div className="sticky top-0 border-b bg-white p-2">
+        <div
+          className={cn(
+            "absolute z-50 flex w-full flex-col overflow-hidden round border bg-white shadow-2xl",
+            drop.up ? "bottom-full mb-1" : "top-full mt-1",
+          )}
+          style={{ maxHeight: drop.max }}
+        >
+          <div className="sticky top-0 border-b bg-white p-1.5">
             <input
               autoFocus
               value={search}
@@ -653,10 +693,10 @@ function SearchablePhoneInput({
                 }
               }}
               placeholder="Search country or code..."
-              className="w-full round border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+              className="w-full round border px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary"
             />
           </div>
-          <div className="overflow-y-auto">
+          <div className="min-h-0 overflow-y-auto overscroll-contain">
             {filtered.length === 0 && <div className="p-3 text-sm text-gray-400">No countries found</div>}
             {filtered.map((c) => {
               const { iso2, name, dialCode } = parseCountry(c);
@@ -665,7 +705,7 @@ function SearchablePhoneInput({
                   key={iso2}
                   type="button"
                   onClick={() => pick(iso2)}
-                  className={cn("flex w-full cursor-pointer items-center gap-3 px-3 py-2 text-left text-sm hover:bg-gray-50", iso2 === country.iso2 && "bg-gray-100")}
+                  className={cn("flex w-full cursor-pointer items-center gap-3 px-3 py-1.5 text-left text-sm hover:bg-gray-50", iso2 === country.iso2 && "bg-gray-100")}
                 >
                   <FlagImage iso2={iso2} className="size-5" />
                   <span className="flex-1">{name}</span>

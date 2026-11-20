@@ -86,6 +86,27 @@ export function parseHighlights(raw: string): { title: string; body: string }[] 
 
 export const HEX_RE = /^#[0-9a-f]{6}$/i;
 
+const hex = (v: unknown): string | null => (typeof v === "string" && HEX_RE.test(v) ? v : null);
+
+/**
+ * Popup colour: the popup's own colour if the merchant picked one, else the store's
+ * Branding colour from the dashboard. Blank used to be saved as DEFAULT_PRIMARY, so that
+ * counts as "not picked".
+ */
+export function pickPrimary(popupColor: unknown, storeColor: unknown): string {
+  const own = hex(popupColor);
+  return (own && own.toLowerCase() !== DEFAULT_PRIMARY ? own : null) ?? hex(storeColor) ?? own ?? DEFAULT_PRIMARY;
+}
+
+/** Text colour on the brand colour (dashboard Branding "Accent"); null = pick black/white automatically. */
+export const pickTextColor = (storeColor: unknown): string | null => hex(storeColor);
+
+/** The store logo stands in for the popup image on templates that show it as a logo. */
+export const LOGO_TEMPLATES: readonly PopupTemplateKey[] = ["welcome"];
+export function withLogo(content: PopupContent, key: PopupTemplateKey, logoUrl: string | null): PopupContent {
+  return !content.imageUrl && logoUrl && LOGO_TEMPLATES.includes(key) ? { ...content, imageUrl: logoUrl } : content;
+}
+
 /** Merge stored JSON over the defaults, ignoring unknown or wrongly-typed keys. */
 export function resolveContent(raw: unknown, brandName = ""): PopupContent {
   const c: PopupContent = { ...DEFAULT_CONTENT, brandName };
@@ -125,4 +146,6 @@ export type PopupBootstrap = {
   templateKey: PopupTemplateKey;
   content: PopupContent;
   primaryColor: string;
+  /** Text/icon colour on primaryColor (store Branding). Null: black or white, whichever reads better. */
+  textColor?: string | null;
 };

@@ -59,17 +59,20 @@ function placementFor(
 function Stage({
   placement,
   primary,
+  text,
   onBackdrop,
   children,
 }: {
   placement: Placement;
   primary: string;
+  /** Store Branding text colour; otherwise black or white, whichever reads better. */
+  text?: string | null;
   onBackdrop?: () => void;
   children: ReactNode;
 }) {
   const vars = {
     "--brand": primary,
-    "--on-brand": onColor(primary),
+    "--on-brand": text && HEX_RE.test(text) ? text : onColor(primary),
   } as CSSProperties;
   return (
     <main
@@ -258,6 +261,7 @@ function Live({ boot }: { boot: PopupBootstrap }) {
     <Stage
       placement={placementFor("live", boot.templateKey)}
       primary={boot.primaryColor}
+        text={boot.textColor}
       onBackdrop={close}
     >
       <SignInFlow boot={boot} frame="float" close={close} onCard={setCard} />
@@ -310,6 +314,7 @@ function Panel({ boot }: { boot: PopupBootstrap }) {
       <Stage
         placement={placementFor("live", boot.templateKey)}
         primary={boot.primaryColor}
+        text={boot.textColor}
         onBackdrop={close}
       >
         <SignInFlow boot={boot} frame="float" close={close} onCard={setCard} />
@@ -317,7 +322,8 @@ function Panel({ boot }: { boot: PopupBootstrap }) {
     );
   }
   return (
-    <Stage placement="fill" primary={boot.primaryColor}>
+    <Stage placement="fill" primary={boot.primaryColor}
+        text={boot.textColor}>
       <SignInFlow boot={boot} frame="fill" close={close} />
     </Stage>
   );
@@ -328,6 +334,7 @@ function Preview({ boot }: { boot: PopupBootstrap }) {
     templateKey: boot.templateKey,
     content: boot.content,
     primaryColor: boot.primaryColor,
+    textColor: boot.textColor ?? null,
   });
 
   // The dashboard pushes edits while the merchant types (Customize panel)
@@ -347,6 +354,11 @@ function Preview({ boot }: { boot: PopupBootstrap }) {
           typeof d.primaryColor === "string" && HEX_RE.test(d.primaryColor)
             ? d.primaryColor
             : v.primaryColor,
+        // null clears it (back to automatic black/white)
+        textColor:
+          d.textColor === null || (typeof d.textColor === "string" && HEX_RE.test(d.textColor))
+            ? d.textColor
+            : v.textColor,
       }));
     };
     window.addEventListener("message", onMessage);
@@ -356,7 +368,7 @@ function Preview({ boot }: { boot: PopupBootstrap }) {
   const { templateKey, content } = view;
   if (templateKey === "welcome") {
     return (
-      <Stage placement="preview" primary={view.primaryColor}>
+      <Stage placement="preview" primary={view.primaryColor} text={view.textColor}>
         <WelcomeFlow
           content={content}
           shop={null}
@@ -368,7 +380,7 @@ function Preview({ boot }: { boot: PopupBootstrap }) {
     );
   }
   return (
-    <Stage placement="preview" primary={view.primaryColor}>
+    <Stage placement="preview" primary={view.primaryColor} text={view.textColor}>
       <TemplateShell
         templateKey={templateKey}
         content={content}
