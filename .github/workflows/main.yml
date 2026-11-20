@@ -33,6 +33,7 @@ jobs:
             echo "MSG91_WHATSAPP_NUMBER=${{ secrets.MSG91_WHATSAPP_NUMBER }}"
             echo "MSG91_WHATSAPP_NAMESPACE=${{ secrets.MSG91_WHATSAPP_NAMESPACE }}"
             echo "FP_SECRET_API_KEY=${{ secrets.FP_SECRET_API_KEY }}"
+            echo "CHECKOUT_TOKEN_SECRET=${{ secrets.CHECKOUT_TOKEN_SECRET }}"
           } > .env
 
       - name: Install dependencies

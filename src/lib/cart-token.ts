@@ -7,6 +7,9 @@ import crypto from "crypto";
  */
 
 const SECRET = process.env.CHECKOUT_TOKEN_SECRET || "";
+// Without it no cart token can be issued, so no storefront cart is ever stored. Say so at boot.
+if (!SECRET) console.error("[cart-token] CHECKOUT_TOKEN_SECRET is not set: storefront cart sync is disabled");
+
 export const CART_TOKEN_TTL_MS = 55 * 60 * 1000; // matches storefront AUTH_TTL
 
 export type CartTokenPayload = {
@@ -17,7 +20,7 @@ export type CartTokenPayload = {
 };
 
 function sign(data: string) {
-  if (!SECRET) throw new Error("GC_CART_TOKEN_SECRET is not set");
+  if (!SECRET) throw new Error("CHECKOUT_TOKEN_SECRET is not set (signs storefront cart tokens)");
   return crypto.createHmac("sha256", SECRET).update(data).digest("base64url");
 }
 
