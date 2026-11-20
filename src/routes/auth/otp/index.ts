@@ -3,6 +3,7 @@ import { createHash, randomBytes, randomUUID } from "crypto";
 import { z } from "zod";
 import { isValidPhoneNumber } from "libphonenumber-js/mobile";
 import { OTP_LENGTH } from "@/lib/otp-code";
+import { testOtpFor } from "@/lib/sms";
 import { prisma } from "@/lib/prisma";
 import { sendOtp, verifyOtp } from "@/lib/otp";
 import { verifyDevice } from "@/lib/fingerprint/fingerprint";
@@ -15,7 +16,7 @@ const phone = z
   .trim()
   .regex(/^\+[1-9]\d{7,14}$/, "Phone must be in E.164 format")
   // Same per-country mobile check as the popup (the code is sent by WhatsApp/SMS)
-  .refine((p) => isValidPhoneNumber(p), "Not a valid mobile number");
+  .refine((p) => isValidPhoneNumber(p) || testOtpFor(p) !== null, "Not a valid mobile number");
 const shop = z.string().trim().min(1).max(255);
 
 const sendBody = z.object({ shop, phone });
@@ -36,7 +37,13 @@ const otpRoutes: FastifyPluginAsync = async (app) => {
     const body = sendBody.safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: "invalid_request" });
 
-    const result = await sendOtp(body.data.shop, body.data.phone);
+    let result;
+    try {
+      result = await sendOtp(body.data.shop, body.data.phone);
+    } catch (err) {
+      req.log.error({ err }, "otp send failed");
+      return reply.code(502).send({ error: "send_failed" });
+    }
     if (!result.ok) {
       return reply
         .code(429)
@@ -63,15 +70,27 @@ const otpRoutes: FastifyPluginAsync = async (app) => {
       create: { id: randomUUID(), phone },
     });
 
+    // Every verified login rotates the device cookie: the old device record is retired,
+    // so a stolen old cookie stops working.
+    const oldCookie = req.cookies[DEVICE_COOKIE];
+    if (oldCookie) {
+      await prisma.trustedDevice.updateMany({
+        where: { cookieHash: sha256(oldCookie) },
+        data: { revokedAt: new Date(), cookieHash: null },
+      });
+    }
+
     // Remember this device so recognize() can skip OTP next time.
+    // Only a confident, non-risky fingerprint is stored (a weak match could recognise the wrong person).
     const fp = await verifyDevice(fpRequestId);
+    const fpUsable = !!fp && !fp.risky && fp.confidence >= 0.9;
     const cookieRaw = randomBytes(32).toString("base64url");
     const device = await prisma.trustedDevice.create({
       data: {
         id: randomUUID(),
         customerId: customer.id,
         cookieHash: sha256(cookieRaw),
-        fpVisitorId: fp && !fp.risky ? fp.visitorId : null,
+        fpVisitorId: fpUsable ? fp.visitorId : null,
         lastCountry: fp?.ipCountry ?? null,
         verifiedAt: new Date(),
         lastSeenAt: new Date(),
