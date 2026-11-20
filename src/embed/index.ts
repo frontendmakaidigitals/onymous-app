@@ -42,13 +42,22 @@ const dashboardOrigins = () =>
     .map((o) => o.trim())
     .filter(Boolean);
 
+const dashboardImgOrigin = (() => {
+  try {
+    return config.DASHBOARD_URL ? new URL(config.DASHBOARD_URL).origin : "";
+  } catch {
+    return "";
+  }
+})();
+
 /** CSP for the popup page. Fingerprint Pro (region "ap") loads from fpcdn.io and talks to *.fpjs.io. */
 function csp(frameAncestors: string[]) {
   return [
     "default-src 'self'",
     "script-src 'self' https://fpcdn.io https://*.fpjs.io",
     "connect-src 'self' https://*.fpjs.io https://*.api.fpjs.io",
-    "img-src 'self' https: data:",
+    // + the dashboard, which serves uploaded store logos (http in local dev)
+    `img-src 'self' https: data:${dashboardImgOrigin ? ` ${dashboardImgOrigin}` : ""}`,
     "style-src 'self' 'unsafe-inline'",
     "base-uri 'none'",
     "form-action 'self'",
@@ -123,7 +132,11 @@ const embedRoutes: FastifyPluginAsync = async (app) => {
   app.get("/embed/consent.js", async (_req, reply) => {
     const js = await bundle("consent.js");
     if (!js) return reply.code(503).send("// consent bundle not built: run npm run build:client");
-    return reply.type("application/javascript; charset=utf-8").header("Cache-Control", "public, max-age=300").send(js);
+    return reply
+      .type("application/javascript; charset=utf-8")
+      // Dev: always fetch the latest build, so rebuilt bundles show up on a normal refresh
+      .header("Cache-Control", config.NODE_ENV === "production" ? "public, max-age=300" : "no-store")
+      .send(js);
   });
 
   // Live popup inside the storefront

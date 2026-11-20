@@ -7,7 +7,8 @@ import { preloadFingerprint } from "@/client/fp-client";
 import { sendCode, verifyCode } from "./bridge";
 import { BrandButton, ErrorText, PhoneField, Spinner, cn } from "./ui";
 
-export const CODE_LENGTH = 6;
+export { OTP_LENGTH as CODE_LENGTH } from "@/lib/otp-code";
+import { OTP_LENGTH as CODE_LENGTH } from "@/lib/otp-code";
 
 const digitsOf = (n: string) => n.replace(/\D/g, "").replace(/^0+/, "");
 const validNumber = (n: string) => {

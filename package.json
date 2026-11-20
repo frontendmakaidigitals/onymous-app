@@ -19,6 +19,7 @@
     "input-otp": "^1.5.0",
     "ioredis": "^6.0.0",
     "jose": "^6.2.16",
+    "libphonenumber-js": "^1.12.10",
     "lucide-react": "^1.74.0",
     "pino": "^10.4.0",
     "react": "^19.3.1",

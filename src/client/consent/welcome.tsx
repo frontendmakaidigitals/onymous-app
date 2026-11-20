@@ -15,13 +15,14 @@ import {
   type ParsedCountry,
 } from "react-international-phone";
 import { ArrowLeft, Check, ChevronDown, ChevronUp, Copy, X } from "lucide-react";
+import { isValidPhoneNumber } from "libphonenumber-js/mobile";
 import { parseHighlights, type PopupContent } from "@/lib/consent/templates";
 import { preloadFingerprint } from "@/client/fp-client";
 import { sendCode, verifyCode } from "./bridge";
 import type { Frame } from "./templates";
 import { cn } from "./ui";
+import { OTP_LENGTH } from "@/lib/otp-code"; // what /api/auth/otp issues
 
-const OTP_LENGTH = 6; // onymous-app's /api/auth/otp issues 6-digit codes
 const RESEND_SECONDS = 60; // matches the server's resend cooldown
 
 // ── Shell ─────────────────────────────────────────────────────────────────
@@ -49,7 +50,7 @@ export function WelcomeFlow({
       aria-modal="true"
       aria-labelledby="oc-title"
       className={cn(
-        "relative grid h-auto w-full grid-cols-1 grid-rows-[auto_auto] overflow-hidden bg-white round font-sans sm:grid-cols-[52.5fr_47.5fr] sm:grid-rows-1",
+        "relative grid h-auto w-full grid-cols-1 grid-rows-[auto_auto] overflow-hidden bg-white round font-sans sm:grid-cols-[minmax(0,52.5fr)_minmax(0,47.5fr)] sm:grid-rows-1",
         frame === "fill" && "sm:h-dvh",
         frame === "float" && "max-w-[880px] shadow-2xl sm:h-[460px]",
         frame === "preview" && "max-w-[880px] shadow-2xl sm:h-[440px]", // dashboard frames are 500px tall
@@ -152,6 +153,9 @@ function Login({
   const [step, setStep] = useState<"phone" | "otp">("phone");
   const [phone, setPhone] = useState("");
   const [dialCode, setDialCode] = useState("971");
+  const [countryName, setCountryName] = useState("UAE");
+  const [dialOk, setDialOk] = useState(true);
+  const [touched, setTouched] = useState(false);
   const [otp, setOtp] = useState("");
   const [agreed, setAgreed] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -161,8 +165,10 @@ function Login({
   const verifying = useRef(false);
 
   const national = phone.replace(/\D/g, "").slice(dialCode.length).replace(/^0+/, "");
-  const phoneValid = national.length >= 7 && national.length <= 12;
   const normalized = `+${dialCode}${national}`;
+  // Per-country mobile rules (length + prefixes); the code goes to WhatsApp/SMS, so landlines fail
+  const phoneValid = dialOk && national.length >= 4 && isValidPhoneNumber(normalized);
+  const showInvalid = touched && national.length > 0 && !phoneValid;
 
   useEffect(() => {
     if (cooldown <= 0) return;
@@ -223,14 +229,21 @@ function Login({
               <SearchablePhoneInput
                 value={phone}
                 disabled={preview}
-                onChange={(val, dial) => {
+                onChange={(val, dial, name) => {
                   setPhone(val);
                   setDialCode(dial);
+                  setCountryName(name);
                   if (error) setError("");
                 }}
-                error={!!error && !phoneValid}
+                onDialValid={setDialOk}
+                onBlur={() => setTouched(true)}
+                error={(!!error && !phoneValid) || (dialOk && showInvalid)}
               />
             </div>
+            {/* Unknown/half-typed country code: no message, Continue just stays disabled */}
+            {dialOk && showInvalid && !error && (
+              <p className="mt-1.5 text-xs text-red-500">Enter a valid {countryName} mobile number</p>
+            )}
             <button type="submit" disabled={!agreed || !phoneValid || loading} className={submitCls}>
               {loading ? <Spinner size={24} color="currentColor" /> : content.buttonLabel}
             </button>
@@ -512,7 +525,8 @@ function OtpInput({ value, onChange, invalid }: { value: string; onChange: (v: s
         onChange={onChange}
         containerClassName="has-disabled:opacity-50"
         render={({ slots }) => (
-          <div className="flex items-center">
+          // 4 boxes at full width look oversized; keep them a fixed size, centred
+          <div className="mx-auto flex max-w-64 items-center">
             {slots.map((slot, i) => (
               <Slot key={i} {...slot} invalid={invalid} />
             ))}
@@ -529,6 +543,23 @@ const sortedCountries = [
   ...defaultCountries.filter((c) => GCC.includes(parseCountry(c).iso2)),
   ...defaultCountries.filter((c) => !GCC.includes(parseCountry(c).iso2)),
 ];
+
+/** Countries by dial code; shared codes (+1, +7…) list the main country first (lowest priority). */
+const DIAL_INDEX = new Map<string, typeof sortedCountries>();
+for (const c of sortedCountries) {
+  const { dialCode } = parseCountry(c);
+  DIAL_INDEX.set(dialCode, [...(DIAL_INDEX.get(dialCode) ?? []), c]);
+}
+for (const list of DIAL_INDEX.values())
+  list.sort((a, b) => (parseCountry(a).priority ?? 0) - (parseCountry(b).priority ?? 0));
+
+/** Country for a typed dial code: keep the current one if it shares the code (e.g. Canada on +1). */
+function countryForDial(dial: string, current: string): string | null {
+  const list = DIAL_INDEX.get(dial);
+  if (!list) return null;
+  const isos = list.map((c) => parseCountry(c).iso2);
+  return isos.includes(current) ? current : isos[0]!;
+}
 
 /** Example number in the country's format, e.g. "50 123 4567" for the UAE. */
 function examplePlaceholder(country: ParsedCountry) {
@@ -563,11 +594,16 @@ function clipBox(el: HTMLElement) {
 function SearchablePhoneInput({
   value,
   onChange,
+  onDialValid,
+  onBlur,
   error,
   disabled,
 }: {
   value: string;
-  onChange: (phone: string, dialCode: string) => void;
+  onChange: (phone: string, dialCode: string, countryName: string) => void;
+  /** false while the typed dial code matches no country */
+  onDialValid?: (ok: boolean) => void;
+  onBlur?: () => void;
   error?: boolean;
   disabled?: boolean;
 }) {
@@ -582,8 +618,34 @@ function SearchablePhoneInput({
     // Input holds only the national number, so the placeholder stays visible;
     // `phone` is still reported in full (+971…)
     disableDialCodeAndPrefix: true,
-    onChange: (data) => onChange(data.phone, data.country.dialCode),
+    onChange: (data) => onChange(data.phone, data.country.dialCode, data.country.name),
   });
+
+  // Editable dial code: typing "+91" picks India without opening the list.
+  // Dial codes are prefix-free, so a code is complete as soon as it matches a country.
+  const [dial, setDial] = useState(country.dialCode);
+  const dialRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    // Country picked from the list (or guessed from a pasted number): show its code
+    if (document.activeElement !== dialRef.current) setDial(country.dialCode);
+  }, [country.dialCode]);
+
+  function onDialChange(raw: string, typed: boolean) {
+    const digits = raw.replace(/\D/g, "").slice(0, 3); // country codes are at most 3 digits
+    setDial(digits);
+    const iso2 = countryForDial(digits, country.iso2);
+    onDialValid?.(!!iso2);
+    if (!iso2) return;
+    if (iso2 !== country.iso2) {
+      // setCountry clears the number; put the digits typed so far back under the new code
+      const national = inputValue.replace(/\D/g, "");
+      setCountry(iso2);
+      const name = parseCountry(DIAL_INDEX.get(digits)!.find((c) => parseCountry(c).iso2 === iso2)!).name;
+      if (national) queueMicrotask(() => onChange(`+${digits}${national}`, digits, name));
+    }
+    // Code complete after typing a digit: carry on into the number (not while deleting)
+    if (typed) inputRef.current?.focus();
+  }
 
   // The popup card clips its content (and the iframe ends at the card), so fit the list into
   // whatever room the card has: below the field if it fits, otherwise above, capped to the space.
@@ -652,7 +714,36 @@ function SearchablePhoneInput({
             error && "border-red-400 bg-red-50",
           )}
         >
-          <span className="pl-4 text-base text-gray-900">+{country.dialCode}</span>
+          <label className="flex items-center pl-4 text-base text-gray-900">
+            <span aria-hidden="true">+</span>
+            <input
+              ref={dialRef}
+              type="tel"
+              inputMode="numeric"
+              autoComplete="tel-country-code"
+              aria-label="Country code"
+              tabIndex={disabled ? -1 : undefined}
+              readOnly={disabled}
+              value={dial}
+              onChange={(e) =>
+                onDialChange(e.target.value, (e.nativeEvent as InputEvent).inputType?.startsWith("insert") ?? false)
+              }
+              onFocus={(e) => e.currentTarget.select()}
+              onBlur={() => {
+                // Left on an unknown/empty code: go back to the selected country's code
+                if (!countryForDial(dial, country.iso2)) {
+                  setDial(country.dialCode);
+                  onDialValid?.(true);
+                }
+              }}
+              onKeyDown={(e) => {
+                // Arrow right at the end of the code moves into the number
+                if (e.key === "ArrowRight" && e.currentTarget.selectionStart === dial.length) inputRef.current?.focus();
+              }}
+              // Fixed width (room for 3 digits) so typing doesn't shift the number
+              className="w-[3.2ch] shrink-0 bg-transparent p-0 tabular-nums outline-none"
+            />
+          </label>
           <input
             ref={inputRef}
             type="tel"
@@ -663,6 +754,17 @@ function SearchablePhoneInput({
             readOnly={disabled}
             value={inputValue}
             onChange={handlePhoneValueChange}
+            onBlur={onBlur}
+            onKeyDown={(e) => {
+              // Backspace / arrow left at the start of the number moves back into the code
+              const el = e.currentTarget;
+              if ((e.key === "Backspace" || e.key === "ArrowLeft") && el.selectionStart === 0 && el.selectionEnd === 0) {
+                e.preventDefault();
+                dialRef.current?.focus();
+                const len = dialRef.current?.value.length ?? 0;
+                dialRef.current?.setSelectionRange(len, len);
+              }
+            }}
             placeholder={examplePlaceholder(country)}
             className="min-w-0 flex-1 bg-transparent py-2 pl-1.5 pr-3 text-base outline-none placeholder:text-gray-400"
           />

@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomInt, timingSafeEqual } from "crypto";
 import redis from "@/lib/redis";
 import { sendSms } from "@/lib/sms";
+import { OTP_LENGTH } from "@/lib/otp-code";
 
 const OTP_TTL_S = 5 * 60;
 const RESEND_COOLDOWN_S = 60;
@@ -30,7 +31,7 @@ export async function sendOtp(shop: string, phone: string): Promise<SendResult> 
     return { ok: false, reason: "too_many", retryAfter: Math.max(await redis.ttl(hourKey), 1) };
   }
 
-  const code = randomInt(0, 1_000_000).toString().padStart(6, "0");
+  const code = randomInt(0, 10 ** OTP_LENGTH).toString().padStart(OTP_LENGTH, "0");
   const salt = randomBytes(8).toString("hex");
   await redis
     .multi()
