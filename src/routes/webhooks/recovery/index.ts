@@ -6,7 +6,9 @@
 //   key      : the store's secret (Store.storeSecret), or header x-gc-secret
 //   source   : free text for logs
 //   shop     : myshopify or public domain (or body.shop); required, it selects the secret
-//   event    : sent | delivered | read | failed | clicked | purchase   (or body.event / body.status)
+//   event    : sent | delivered | read | failed | clicked | purchase
+//              (or body.deliveryStatus / status / message_status / event / type: first one that is known;
+//               Zoko sends event "message:delivery:update" + deliveryStatus accepted|delivered|seen|failed)
 //   target   : cart (default) | browse   (delivery events only)
 //   template : only accept status events for this template (account-level webhooks send every message)
 //
@@ -185,7 +187,16 @@ const recoveryWebhookRoutes: FastifyPluginAsync = async (app) => {
     const shop = store.shopDomain;
 
     // ── Event ───────────────────────────────────────────────────────────────
-    const event = normalizeEvent(q.event ?? first(body, "event", "status", "type", "message_status"));
+    // Zoko: { event: "message:delivery:update", deliveryStatus: accepted|delivered|seen|failed,
+    //         id: <message id, same for every status>, phone, platformTimestamp }
+    // so take the first field that names a known event, status fields before the generic "event".
+    const zokoStyle = /^message:/i.test(first(body, "event") ?? "");
+    const event =
+      normalizeEvent(q.event) ??
+      ["deliveryStatus", "status", "message_status", "event", "type"]
+        .map((f) => normalizeEvent(first(body, f)))
+        .find((e): e is Ev => e !== null) ??
+      null;
     if (!event) {
       req.log.warn({ source, body: JSON.stringify(raw).slice(0, 1000) }, "[recovery-webhook] unknown event");
       return reply.send({ ok: true, ignored: "unknown event" }); // 200 so the provider doesn't retry/disable
@@ -203,7 +214,7 @@ const recoveryWebhookRoutes: FastifyPluginAsync = async (app) => {
       "phone", "phone_digits", "customer_phone", "mobile", "phone_number", "to", "recipient",
       "customer.phone", "billing_address.phone", "shipping_address.phone",
     );
-    const at = asDate(first(body, "timestamp", "time", "event_time", "created_at"));
+    const at = asDate(first(body, "timestamp", "time", "event_time", "created_at", "platformTimestamp"));
 
     // Append-only event log (stores."RecoveryEvent"): cart rows keep only the latest cycle, so
     // the dashboard attributes orders from these (delivered/read within a day before an order).
@@ -213,6 +224,7 @@ const recoveryWebhookRoutes: FastifyPluginAsync = async (app) => {
       const phoneKey = digits.length >= 8 ? digits.slice(-9) : null;
       const messageId =
         first(body, "message_id", "messageId", "msg_id", "zoko_message_id", "wamid", "message.id", "messageID") ??
+        (zokoStyle ? first(body, "id") : null) ??
         `${phoneKey ?? "?"}:${at.toISOString()}`; // no id from the provider: one row per phone + time
       try {
         await prisma.recoveryEvent.createMany({
@@ -267,7 +279,8 @@ const recoveryWebhookRoutes: FastifyPluginAsync = async (app) => {
       };
 
       // Row id we sent; scoped to this shop so one store's key can't touch another's rows
-      const rowId = first(body, "gc_id", "cart_id", "recovery_id", "id");
+      // (Zoko's "id" is its message id, not ours)
+      const rowId = first(body, "gc_id", "cart_id", "recovery_id", ...(zokoStyle ? [] : ["id"]));
       let row = rowId ? await model.findFirst({ where: { id: rowId, shop }, select }) : null;
 
       if (!row && phones.length) {
