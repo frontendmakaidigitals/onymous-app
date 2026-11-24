@@ -137,6 +137,13 @@ export function recoveryCartId(o: ShopifyOrder): string | null {
   return m ? decodeURIComponent(m[1] ?? "") : null;
 }
 
+/**
+ * Test orders (payment gateway in test mode) are not sales, so they are skipped like cancelled
+ * ones. SHOPIFY_INCLUDE_TEST_ORDERS=1 counts them, for trying the recovery flow on a dev store.
+ */
+export const INCLUDE_TEST_ORDERS = process.env.SHOPIFY_INCLUDE_TEST_ORDERS === "1";
+const notASale = (o: ShopifyOrder) => !!o.cancelled_at || (!!o.test && !INCLUDE_TEST_ORDERS);
+
 export type SyncResult = "created" | "updated" | "removed" | "skipped";
 
 /**
@@ -285,7 +292,7 @@ export async function syncShopifyOrder(store: OrderStore, o: ShopifyOrder): Prom
     });
 
     // Cancelled and test orders are not sales: removed, and they stop counting for their cart
-    if (o.cancelled_at || o.test) {
+    if (notASale(o)) {
       if (o.cancelled_at || existing.some((e) => e.attribution)) {
         await clearPurchaseMarks(tx, store.shopDomain, orderNumericId, orderAt);
       }
