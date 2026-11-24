@@ -3,6 +3,7 @@ import Fastify from "fastify";
 import autoload from "@fastify/autoload";
 import { config } from "@/config";
 import embedRoutes from "@/embed";
+import recoverRedirectRoutes from "./lib/recover-redirect";
 
 export async function buildApp() {
   const app = Fastify({
@@ -20,7 +21,7 @@ export async function buildApp() {
     dir: path.join(__dirname, "routes"),
     options: { prefix: "/api" },
   });
-
+  await app.register(recoverRedirectRoutes, { prefix: "/r" });
   // Consent popup: storefront loader, iframe page, dashboard preview (not under /api)
   await app.register(embedRoutes);
 

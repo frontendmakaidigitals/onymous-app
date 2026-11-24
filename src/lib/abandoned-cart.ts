@@ -23,6 +23,10 @@ export type RecoveryItem = {
 
 const MAX_ITEMS = 100;
 const RESEND_COOLDOWN_MS = Number(process.env.CART_RECOVERY_RESEND_COOLDOWN_HOURS ?? 8) * 3600_000;
+const APP_ORIGIN = process.env.APP_ORIGIN ?? "https://useonymous.com";
+
+// Provider statuses that mean the message did not reach the customer
+const FAILED_STATUSES = new Set(["failed", "failed_to_deliver"]);
 
 function num(v: unknown): number | null {
   const n = typeof v === "string" && v.trim() !== "" ? Number(v) : v;
@@ -115,8 +119,8 @@ function toOrigin(raw: string | null | undefined): string | null {
   }
 }
 
-/** Merchant storefront origin for recovery links: Bitespeed recoveryDomain -> websiteUrl -> shopDomain. */
-export async function recoveryBase(shop: string): Promise<string> {
+/** Storefront origin + whether GulfCart checkout is live (overlay), fetched together. */
+export async function recoveryContext(shop: string): Promise<{ base: string; overlay: boolean }> {
   const [integration, store] = await Promise.all([
     prisma.bitespeedIntegration.findUnique({
       where: { shop },
@@ -124,25 +128,41 @@ export async function recoveryBase(shop: string): Promise<string> {
     }),
     prisma.store.findUnique({
       where: { shopDomain: shop },
-      select: { websiteUrl: true },
+      select: { websiteUrl: true, isActive: true },
     }),
   ]);
-  return (
-    toOrigin(integration?.recoveryDomain) ??
-    toOrigin(store?.websiteUrl) ??
-    `https://${shop}`
-  );
+  return {
+    base:
+      toOrigin(integration?.recoveryDomain) ??
+      toOrigin(store?.websiteUrl) ??
+      `https://${shop}`,
+    overlay: !!store?.isActive, // isActive = GulfCart checkout live on this store
+  };
+}
+
+/** Merchant storefront origin for recovery links: Bitespeed recoveryDomain -> websiteUrl -> shopDomain. */
+export async function recoveryBase(shop: string): Promise<string> {
+  return (await recoveryContext(shop)).base;
 }
 
 /**
- * One link format for every store: https://store/?gc_recover=<id>
- * The storefront snippet decides at click time:
+ * Storefront link: https://store/?gc_recover=<id>
+ * Used by stores where GulfCart checkout is live (Store.isActive). The storefront snippet decides at click time:
  *   GulfCart checkout live -> opens the GulfCart overlay prefilled
- *   GulfPass only / native -> redirects to nativeCheckoutPath() (Shopify checkout, prefilled)
+ *   otherwise              -> fetches /api/cart/recover and redirects to the permalink
  * Landing on a store page first is what lets us record the click.
  */
 export function buildRecoveryLink(base: string, id: string) {
   return `${base}/?gc_recover=${encodeURIComponent(id)}`;
+}
+
+/**
+ * Short link for stores without GulfCart checkout live: https://<app>/r/<id>
+ * src/lib/recover-redirect.ts (registered at /r) records the click and 302s straight to the stored checkoutPath.
+ * Keeps the customer's email/name/phone out of the message.
+ */
+export function buildShortRecoveryLink(id: string) {
+  return `${APP_ORIGIN}/r/${encodeURIComponent(id)}`;
 }
 
 /**
@@ -212,6 +232,7 @@ export type UpsertAbandonedCartInput = {
  * - source escalates cart -> checkout within a cycle, never back.
  * - Every call moves lastActivityAt (resets the send timer).
  * - Empty cart clears the row instead (no send).
+ * - Rebuilds recoveryLink + checkoutPath on every call, so they always match the latest cart.
  */
 export async function upsertAbandonedCart(input: UpsertAbandonedCartInput) {
   const shop = input.shop;
@@ -271,14 +292,29 @@ export async function upsertAbandonedCart(input: UpsertAbandonedCartInput) {
     where: { shop_phone: { shop, phone } },
     create: { shop, phone, ...contents },
     update: { ...contents, ...(existing && newCycle ? NEW_CYCLE : {}) },
-    select: { id: true, recoveryLink: true },
+    select: { id: true, recoveryLink: true, checkoutPath: true },
   });
 
-  const link = buildRecoveryLink(await recoveryBase(shop), row.id);
-  if (row.recoveryLink !== link) {
+  const { base, overlay } = await recoveryContext(shop);
+
+  // Overlay stores keep the storefront link (the snippet opens the overlay).
+  // Everyone else gets a short /r/<id> link that redirects to the stored permalink.
+  const link = overlay ? buildRecoveryLink(base, row.id) : buildShortRecoveryLink(row.id);
+  const checkoutPath = overlay
+    ? null
+    : base +
+      nativeCheckoutPath({
+        id: row.id,
+        items,
+        email: identity.email,
+        name: identity.name,
+        phone,
+      });
+
+  if (row.recoveryLink !== link || row.checkoutPath !== checkoutPath) {
     await prisma.abandonedCart.update({
       where: { id: row.id },
-      data: { recoveryLink: link },
+      data: { recoveryLink: link, checkoutPath },
     });
   }
 
@@ -293,6 +329,7 @@ export async function clearAbandonedCart(shop: string, phone: string, cartToken:
     data: {
       items: [],
       total: 0,
+      checkoutPath: null,
       lastActivityAt: new Date(),
       ...(token ? { cartToken: token } : {}),
     },
@@ -312,7 +349,7 @@ export function attributePurchase(
 ): PurchaseAttribution {
   if (recoveryCartId && recoveryCartId === row.id) return "recovered";
   // Sent to the provider AND not reported failed (status webhook)
-  const messaged = !!row.abandonedSentAt && row.deliveryStatus !== "failed";
+  const messaged = !!row.abandonedSentAt && !FAILED_STATUSES.has(row.deliveryStatus ?? "");
   if (messaged && row.recoveryClickedAt && row.recoveryClickedAt >= row.abandonedSentAt!) return "assisted";
   if (messaged) return "influenced";
   return "organic";

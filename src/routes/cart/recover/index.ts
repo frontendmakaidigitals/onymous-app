@@ -205,16 +205,16 @@ const recoverRoutes: FastifyPluginAsync = async (app) => {
         email: cart.email || "",
         phone: cart.phone || "",
       },
-      permalinkPath:
-        mode === "native"
-          ? nativeCheckoutPath({
-              id: cart.id,
-              items,
-              email: cart.email,
-              name: cart.name,
-              phone: cart.phone,
-            })
-          : null,
+      // Always sent, also in "gulfcart" mode: the header snippet only redirects here when
+      // the GulfCart checkout snippet isn't on the page (window.__gcCheckoutLoaded), so a
+      // store marked isActive without the overlay installed still reaches native checkout.
+      permalinkPath: nativeCheckoutPath({
+        id: cart.id,
+        items,
+        email: cart.email,
+        name: cart.name,
+        phone: cart.phone,
+      }),
     };
   });
 };

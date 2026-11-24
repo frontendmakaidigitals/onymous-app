@@ -154,6 +154,7 @@ model AbandonedCart {
   purchaseCurrency    String?
   purchaseGateway     String?
   purchaseTotal       Float?
+  checkoutPath        String?
 
   @@unique([shop, phone])
   @@index([phone])
@@ -262,12 +263,14 @@ model Order {
   manualDiscountAmount    Float?
   discountAmountDisplay   Float?
   paidTotal               Float?
+  attribution             String?
   Store                   Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
   @@index([shop])
   @@index([shopifyOrderId])
   @@index([storeId, sessionId])
   @@index([storeId, visitorId])
+  @@index([storeId, createdAt])
   @@schema("stores")
 }
 
@@ -394,6 +397,31 @@ model ConsentPopupConfig {
   publishedAt  DateTime?
   updatedAt    DateTime  @updatedAt
 
+  @@schema("stores")
+}
+
+/// Append-only log of recovery-message events (one row per provider event; never overwritten).
+/// event: sent | delivered | read | failed | clicked | converted (orderId = Shopify order id).
+/// messageId/orderId are '' when unknown, so the unique key also dedupes those rows.
+model RecoveryEvent {
+  id        String   @id @default(uuid())
+  shop      String
+  provider  String
+  event     String
+  phone     String?
+  /// last 9 digits of phone, for matching Shopify orders
+  phoneKey  String?
+  at        DateTime
+  messageId String   @default("")
+  orderId   String   @default("")
+  template  String?
+  /// webhook | import
+  origin    String
+  createdAt DateTime @default(now())
+
+  @@unique([shop, provider, messageId, event, orderId])
+  @@index([shop, phoneKey, at])
+  @@index([shop, orderId])
   @@schema("stores")
 }
 

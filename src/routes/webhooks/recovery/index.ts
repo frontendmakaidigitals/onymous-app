@@ -205,6 +205,36 @@ const recoveryWebhookRoutes: FastifyPluginAsync = async (app) => {
     );
     const at = asDate(first(body, "timestamp", "time", "event_time", "created_at"));
 
+    // Append-only event log (stores."RecoveryEvent"): cart rows keep only the latest cycle, so
+    // the dashboard attributes orders from these (delivered/read within a day before an order).
+    // Logged even when no cart row matches, e.g. the provider's own follow-up messages.
+    if (event !== "purchase") {
+      const digits = (phones[0] ?? "").replace(/\D/g, "");
+      const phoneKey = digits.length >= 8 ? digits.slice(-9) : null;
+      const messageId =
+        first(body, "message_id", "messageId", "msg_id", "zoko_message_id", "wamid", "message.id", "messageID") ??
+        `${phoneKey ?? "?"}:${at.toISOString()}`; // no id from the provider: one row per phone + time
+      try {
+        await prisma.recoveryEvent.createMany({
+          data: [{
+            shop,
+            provider: source.toLowerCase(),
+            event,
+            phone: phones[0] ?? null,
+            phoneKey,
+            at,
+            messageId,
+            orderId: "",
+            template: first(body, "template", "template_name", "templateId", "template_id", "templateName", "message.template"),
+            origin: "webhook",
+          }],
+          skipDuplicates: true,
+        });
+      } catch (err) {
+        req.log.error({ err, source, event }, "[recovery-webhook] event log failed");
+      }
+    }
+
     try {
       // ── Purchase ──────────────────────────────────────────────────────────
       if (event === "purchase") {
