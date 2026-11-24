@@ -137,6 +137,8 @@ type DeliveryRow = {
   deliveredAt: Date | null;
   readAt: Date | null;
   recoveryClickedAt?: Date | null;
+  abandonedSentAt?: Date | null;
+  purchasedAt?: Date | null;
 };
 type Delegate = {
   findFirst(args: unknown): Promise<DeliveryRow | null>;
@@ -274,7 +276,7 @@ const recoveryWebhookRoutes: FastifyPluginAsync = async (app) => {
       }
       const model = delegate(target);
       const select = {
-        id: true, deliveryStatus: true, deliveredAt: true, readAt: true,
+        id: true, deliveryStatus: true, deliveredAt: true, readAt: true, abandonedSentAt: true, purchasedAt: true,
         ...(target === "cart" ? { recoveryClickedAt: true } : {}),
       };
 
@@ -290,6 +292,19 @@ const recoveryWebhookRoutes: FastifyPluginAsync = async (app) => {
           orderBy: { abandonedSentAt: "desc" },
           select,
         });
+      }
+      // A phone match can't tell our message from the store's other WhatsApp messages to the same
+      // customer (order confirmations, replies). Only take receipts between our send and the purchase.
+      if (row && !(rowId && row.id === rowId)) {
+        const sentAt = row.abandonedSentAt;
+        const outside =
+          (sentAt && at.getTime() < sentAt.getTime() - 60_000) ||
+          (row.purchasedAt && at.getTime() > row.purchasedAt.getTime()) ||
+          (sentAt && at.getTime() - sentAt.getTime() > 3 * 24 * 3_600_000);
+        if (outside) {
+          req.log.info({ source, event, target, id: row.id, at }, "[recovery-webhook] receipt outside the recovery window: ignored");
+          return reply.send({ ok: true, event, updated: 0, note: "not the recovery message" });
+        }
       }
       if (!row) {
         req.log.warn(
