@@ -82,7 +82,7 @@ const otpRoutes: FastifyPluginAsync = async (app) => {
 
     // Remember this device so recognize() can skip OTP next time.
     // Only a confident, non-risky fingerprint is stored (a weak match could recognise the wrong person).
-    const fp = await verifyDevice(fpRequestId);
+    const fp = await verifyDevice(fpRequestId, shop);
     const fpUsable = !!fp && !fp.risky && fp.confidence >= 0.9;
     const cookieRaw = randomBytes(32).toString("base64url");
     const device = await prisma.trustedDevice.create({

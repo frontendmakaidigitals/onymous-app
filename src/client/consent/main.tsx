@@ -4,6 +4,8 @@
 import { createRoot } from "react-dom/client";
 import type { PopupBootstrap } from "@/lib/consent/templates";
 import { App } from "./app";
+import { setFingerprintAllowed } from "@/client/fp-client";
 
 const boot = JSON.parse(document.getElementById("onymous-bootstrap")?.textContent || "{}") as PopupBootstrap;
+setFingerprintAllowed(boot.fingerprint === true);
 createRoot(document.getElementById("onymous-root")!).render(<App boot={boot} />);

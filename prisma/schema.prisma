@@ -51,39 +51,44 @@ model Address {
 }
 
 model Store {
-  id                   String                @id @default(cuid())
-  name                 String
-  currency             String
-  websiteUrl           String?
-  description          String?
-  language             String?
-  rtl                  Boolean               @default(false)
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
-  logo                 String?
-  primaryColor         String?
-  textColor            String?
-  addressPhone         String?
-  oauthInstalledAt     DateTime?
-  oauthToken           String?
-  shopifyClientId      String?
-  shopifyClientSecret  String?
-  shopDomain           String?               @unique
-  pixelId              String                @unique
-  email                String?
-  isActive             Boolean               @default(false)
-  subscriptionExempt   Boolean               @default(false)
-  cartRecoveryProvider String?
-  storeSecret          String?
-  addressCity          String?
-  addressLine1         String?
-  addressPostal        String?
-  addressState         String?
-  stripeCustomerId     String?               @unique
-  merchantSubscription MerchantSubscription?
-  Order                Order[]
-  pixelEvents          PixelEvent[]
-  users                users[]
+  id                      String                @id @default(cuid())
+  name                    String
+  currency                String
+  websiteUrl              String?
+  description             String?
+  language                String?
+  rtl                     Boolean               @default(false)
+  createdAt               DateTime              @default(now())
+  updatedAt               DateTime              @updatedAt
+  logo                    String?
+  primaryColor            String?
+  textColor               String?
+  addressPhone            String?
+  oauthInstalledAt        DateTime?
+  oauthToken              String?
+  shopifyClientId         String?
+  shopifyClientSecret     String?
+  shopDomain              String?               @unique
+  pixelId                 String                @unique
+  email                   String?
+  isActive                Boolean               @default(false)
+  subscriptionExempt      Boolean               @default(false)
+  cartRecoveryProvider    String?
+  storeSecret             String?
+  addressCity             String?
+  addressLine1            String?
+  addressPostal           String?
+  addressState            String?
+  stripeCustomerId        String?               @unique
+  /// Fingerprint Pro (billed per identification): off = cookie / OTP only
+  fingerprintEnabled      Boolean               @default(true)
+  /// Identifications per calendar month (UTC); null = no limit
+  fingerprintMonthlyLimit Int?                  @default(1000)
+  FingerprintUsage        FingerprintUsage[]
+  merchantSubscription    MerchantSubscription?
+  Order                   Order[]
+  pixelEvents             PixelEvent[]
+  users                   users[]
 
   @@schema("stores")
 }
@@ -422,6 +427,19 @@ model RecoveryEvent {
   @@unique([shop, provider, messageId, event, orderId])
   @@index([shop, phoneKey, at])
   @@index([shop, orderId])
+  @@schema("stores")
+}
+
+/// Fingerprint Pro identifications per store per month (UTC 'YYYY-MM'). Each one is billed,
+/// so onymous-app counts them and stops fingerprinting at Store.fingerprintMonthlyLimit.
+model FingerprintUsage {
+  storeId   String
+  month     String
+  count     Int      @default(0)
+  updatedAt DateTime @default(now()) @updatedAt
+  Store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@id([storeId, month])
   @@schema("stores")
 }
 

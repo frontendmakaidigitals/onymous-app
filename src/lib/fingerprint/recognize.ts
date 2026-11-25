@@ -66,8 +66,8 @@ export async function byCookie(cookieRaw: string | undefined): Promise<Match | n
 }
 
 /** Path 2: server-verified fingerprint (Safari, iPhone, cookie-blocked browsers). */
-export async function byFingerprint(fpRequestId: string | undefined): Promise<Match | null> {
-    const fp = await verifyDevice(fpRequestId);
+export async function byFingerprint(fpRequestId: string | undefined, shop: string): Promise<Match | null> {
+    const fp = await verifyDevice(fpRequestId, shop);
 
     if (!fp) {
         console.info("[recognize] no fingerprint signal");
@@ -122,11 +122,12 @@ export async function byFingerprint(fpRequestId: string | undefined): Promise<Ma
 
 /** Cookie first (free); fingerprint only if a requestId is provided. */
 export async function recognize(opts: {
+    shop: string;
     cookie?: string;
     fpRequestId?: string;
 }): Promise<Match | null> {
     return (
         (await byCookie(opts.cookie)) ??
-        (opts.fpRequestId ? await byFingerprint(opts.fpRequestId) : null)
+        (opts.fpRequestId ? await byFingerprint(opts.fpRequestId, opts.shop) : null)
     );
 }

@@ -56,7 +56,7 @@ const trackRoutes: FastifyPluginAsync = async (app) => {
 
     // 2) Otherwise verify the fingerprint (requestId is single-use)
     if (!phone && fpRequestId) {
-      const match = await byFingerprint(fpRequestId);
+      const match = await byFingerprint(fpRequestId, shop);
       if (match) {
         phone = match.phone;
         customerId = match.customerId;

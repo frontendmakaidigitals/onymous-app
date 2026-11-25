@@ -22,6 +22,7 @@ import {
   type PopupBootstrap,
 } from "@/lib/consent/templates";
 import { isStoreOrigin, storeOrigins } from "@/lib/store-origin";
+import { fingerprintAllowed } from "@/lib/fingerprint/usage";
 
 const PUBLIC_DIR = path.join(process.cwd(), "dist", "public");
 const cache = new Map<string, string>();
@@ -159,6 +160,7 @@ const embedRoutes: FastifyPluginAsync = async (app) => {
         content: cfg.content,
         primaryColor: cfg.primaryColor,
         textColor: brand.textColor,
+        fingerprint: await fingerprintAllowed(store.shopDomain),
       },
       storeOrigins(store),
     );
@@ -194,6 +196,7 @@ const embedRoutes: FastifyPluginAsync = async (app) => {
         content: cfg?.content ?? fallbackContent(store, brand, key),
         primaryColor: cfg?.primaryColor ?? brand.primaryColor,
         textColor: brand.textColor,
+        fingerprint: await fingerprintAllowed(store.shopDomain),
       },
       origins,
     );

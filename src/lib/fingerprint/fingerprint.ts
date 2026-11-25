@@ -1,5 +1,6 @@
 import { FingerprintJsServerApiClient, Region } from "@fingerprintjs/fingerprintjs-pro-server-api";
 import redis from "@/lib/redis";
+import { chargeFingerprint } from "@/lib/fingerprint/usage";
 
 const client = new FingerprintJsServerApiClient({
   apiKey: process.env.FP_SECRET_API_KEY!,
@@ -19,12 +20,15 @@ const MAX_AGE_MS = 10 * 60 * 1000; // covers a slow OTP entry
  * The browser only sends a requestId; the real visitorId comes from
  * Fingerprint's server API, so a faked visitorId is useless.
  */
-export async function verifyDevice(requestId?: string | null): Promise<DeviceSignal | null> {
+export async function verifyDevice(requestId: string | null | undefined, shop: string | null | undefined): Promise<DeviceSignal | null> {
   if (!requestId) return null;
 
   // Single-use: a captured requestId can't be replayed
   const fresh = await redis.set(`gc:fpreq:${requestId}`, "1", "EX", 900, "NX");
   if (fresh !== "OK") return null;
+
+  // Counted once per identification; ignored when the store has it off or is over its monthly limit
+  if (!(await chargeFingerprint(shop))) return null;
 
   try {
     const event: any = await client.getEvent(requestId);

@@ -148,4 +148,6 @@ export type PopupBootstrap = {
   primaryColor: string;
   /** Text/icon colour on primaryColor (store Branding). Null: black or white, whichever reads better. */
   textColor?: string | null;
+  /** Fingerprint Pro allowed for this store (on, and under its monthly limit). Missing = not allowed. */
+  fingerprint?: boolean;
 };

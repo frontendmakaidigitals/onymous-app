@@ -15,5 +15,8 @@ export async function recognizeDevice(shop: string): Promise<Recognized | null> 
     const d = r.ok ? await r.json() : null;
     return d?.recognized ? { token: d.token, firstName: d.firstName ?? null, via: d.via } : null;
   };
-  return (await call()) ?? (await call(await getFpRequestId()));
+  const viaCookie = await call();
+  if (viaCookie) return viaCookie;
+  const fpRequestId = await getFpRequestId(); // undefined when the store doesn't allow it
+  return fpRequestId ? call(fpRequestId) : null;
 }

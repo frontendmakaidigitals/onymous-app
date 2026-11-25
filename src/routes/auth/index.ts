@@ -12,6 +12,7 @@ const authRoutes: FastifyPluginAsync = async (app) => {
     if (!body.success) return reply.code(400).send({ error: "invalid_request" });
 
     const match = await recognize({
+      shop: body.data.shop,
       cookie: req.cookies[DEVICE_COOKIE],
       ...(body.data.fpRequestId ? { fpRequestId: body.data.fpRequestId } : {}),
     });
