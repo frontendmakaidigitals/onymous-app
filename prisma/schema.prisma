@@ -313,15 +313,18 @@ model OtpEvent {
 }
 
 model BitespeedIntegration {
-  id             String   @id
-  shop           String   @unique
-  apiKey         String?
-  apiKeyLast4    String?
-  enabled        Boolean  @default(true)
-  delayMinutes   Int      @default(30)
-  recoveryDomain String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime
+  id               String   @id
+  shop             String   @unique
+  apiKey           String?
+  apiKeyLast4      String?
+  enabled          Boolean  @default(true)
+  delayMinutes     Int      @default(30)
+  recoveryDomain   String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime
+  /// Per-store Bitespeed events URLs; null = the shared BITESPEED_*_EVENTS_URL
+  cartWebhookUrl   String?
+  browseWebhookUrl String?
 
   @@schema("stores")
 }
